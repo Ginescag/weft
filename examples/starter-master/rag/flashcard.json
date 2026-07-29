@@ -1,0 +1,14 @@
+{
+  "tarjetas": [
+    {
+      "id": "rag-f1",
+      "anverso": "The two stages of RAG?",
+      "reverso": "Retrieve (find relevant chunks for the query) then Generate (answer from those chunks placed in the prompt)."
+    },
+    {
+      "id": "rag-f2",
+      "anverso": "Why can RAG reduce hallucinations?",
+      "reverso": "The answer is grounded in retrieved source text, so the model has the facts in-context instead of guessing from memory."
+    }
+  ]
+}

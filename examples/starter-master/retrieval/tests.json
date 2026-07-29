@@ -1,0 +1,28 @@
+{
+  "preguntas": [
+    {
+      "id": "ret-q1",
+      "enunciado": "What is hybrid search?",
+      "opciones": [
+        "Running the query on two different LLMs",
+        "Combining keyword (sparse) and vector (dense) retrieval and merging their scores",
+        "Searching images and text at the same time",
+        "Caching the results of previous queries"
+      ],
+      "correcta": 1,
+      "explicacion": "Hybrid search fuses lexical matches (e.g. BM25) with semantic vector matches, so each covers the other's blind spots."
+    },
+    {
+      "id": "ret-q2",
+      "enunciado": "When does dense (vector) retrieval beat plain keyword search?",
+      "opciones": [
+        "When the query and document share exact terms",
+        "When they mean the same thing using different words",
+        "When the corpus is tiny",
+        "Never"
+      ],
+      "correcta": 1,
+      "explicacion": "Vector retrieval matches meaning, so it finds paraphrases and synonyms that exact-term keyword search would miss."
+    }
+  ]
+}

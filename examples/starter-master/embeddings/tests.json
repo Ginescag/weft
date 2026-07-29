@@ -1,0 +1,28 @@
+{
+  "preguntas": [
+    {
+      "id": "emb-q1",
+      "enunciado": "What does the cosine similarity between two embedding vectors measure?",
+      "opciones": [
+        "The Euclidean distance between them",
+        "How aligned their directions are, i.e. semantic similarity",
+        "The number of dimensions they share",
+        "The difference in their magnitudes"
+      ],
+      "correcta": 1,
+      "explicacion": "Cosine similarity compares the angle between vectors, so it captures semantic closeness independent of magnitude."
+    },
+    {
+      "id": "emb-q2",
+      "enunciado": "Why are embeddings often normalized to unit length before a nearest-neighbour search?",
+      "opciones": [
+        "To reduce their dimensionality",
+        "So the dot product equals the cosine similarity",
+        "To turn them into integers",
+        "To remove duplicate vectors"
+      ],
+      "correcta": 1,
+      "explicacion": "With unit-length vectors the dot product is exactly the cosine similarity, which is what most vector indexes optimise for."
+    }
+  ]
+}

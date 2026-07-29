@@ -1,0 +1,11 @@
+{
+  "id": "chunking",
+  "nombre": "Chunking",
+  "resumen": "Splitting documents into passages sized for embedding and retrieval — chunk boundaries strongly affect RAG quality.",
+  "relaciones": [
+    {
+      "id": "embeddings",
+      "tipo": "requiere"
+    }
+  ]
+}

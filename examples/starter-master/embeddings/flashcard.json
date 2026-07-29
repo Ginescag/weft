@@ -1,0 +1,14 @@
+{
+  "tarjetas": [
+    {
+      "id": "emb-f1",
+      "anverso": "What is an embedding?",
+      "reverso": "A dense vector representation of text or data where geometric closeness reflects semantic similarity."
+    },
+    {
+      "id": "emb-f2",
+      "anverso": "Cosine similarity of 1 vs 0 vs -1?",
+      "reverso": "1 = same direction (very similar), 0 = orthogonal (unrelated), -1 = opposite meaning."
+    }
+  ]
+}

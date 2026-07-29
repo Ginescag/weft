@@ -1,0 +1,28 @@
+{
+  "preguntas": [
+    {
+      "id": "rag-q1",
+      "enunciado": "What problem does RAG primarily address?",
+      "opciones": [
+        "Slow model training",
+        "Models answering from stale or missing knowledge",
+        "High GPU cost at inference",
+        "Tokenization errors"
+      ],
+      "correcta": 1,
+      "explicacion": "RAG injects fresh, relevant context at query time so the model can answer about data it never saw during training."
+    },
+    {
+      "id": "rag-q2",
+      "enunciado": "In a RAG pipeline, what is placed into the prompt?",
+      "opciones": [
+        "The whole corpus",
+        "The top retrieved passages for the query",
+        "Only the question",
+        "The raw embedding vectors"
+      ],
+      "correcta": 1,
+      "explicacion": "Retrieval selects the most relevant chunks and only those are concatenated into the prompt as grounding context."
+    }
+  ]
+}

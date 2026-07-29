@@ -1,0 +1,14 @@
+{
+  "tarjetas": [
+    {
+      "id": "ret-f1",
+      "anverso": "BM25 in one line?",
+      "reverso": "A classic sparse, term-frequency ranking function for keyword retrieval — a strong exact-match baseline."
+    },
+    {
+      "id": "ret-f2",
+      "anverso": "What is re-ranking?",
+      "reverso": "A second, more expensive model re-scores the top-k retrieved passages to push the truly relevant ones to the top."
+    }
+  ]
+}

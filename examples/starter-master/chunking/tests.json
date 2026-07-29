@@ -1,0 +1,28 @@
+{
+  "preguntas": [
+    {
+      "id": "chk-q1",
+      "enunciado": "Why does chunk size matter in a RAG pipeline?",
+      "opciones": [
+        "It changes the model's temperature",
+        "Chunks that are too large dilute relevance; too small lose context",
+        "It sets the embedding dimension",
+        "It controls the LLM's context-window size"
+      ],
+      "correcta": 1,
+      "explicacion": "Retrieval ranks whole chunks, so oversized chunks bury the relevant sentence while undersized ones strip the surrounding context."
+    },
+    {
+      "id": "chk-q2",
+      "enunciado": "What is 'overlap' when chunking a document?",
+      "opciones": [
+        "Repeating a few tokens or sentences between adjacent chunks",
+        "Merging duplicate documents",
+        "Storing the same chunk twice in the index",
+        "Overwriting old embeddings"
+      ],
+      "correcta": 0,
+      "explicacion": "A small overlap keeps context that would otherwise be split across a boundary, so an answer spanning the cut is still retrievable."
+    }
+  ]
+}

@@ -1,0 +1,282 @@
+@import "tailwindcss";
+
+/* ————————————————————————————————————————————————
+   Telar — "bordado sobre lino"
+   Linen canvas, warm ink, one saturated thread: burgundy.
+   Structure: flat surfaces, 1px hairlines, no shadows.
+   ———————————————————————————————————————————————— */
+
+@theme {
+  --color-linen: #f2ede4;
+  --color-linen-raw: #e8e1d4;
+  --color-linen-bright: #f8f4ec;
+  --color-ink: #2a2420;
+  --color-muted: #8b8177;
+  --color-burgundy: #7a2e3a;
+  --color-burgundy-deep: #5c1f2a;
+  --color-moss: #3e6b54;
+  --color-hairline: #ddd5c8;
+
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Geist", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --ease-thread: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    background-color: var(--color-linen);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  body {
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-burgundy) 22%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-burgundy);
+    outline-offset: 2px;
+  }
+
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1;
+    padding: 3px 6px;
+    border: 1px solid var(--color-hairline);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--color-linen-bright);
+    color: var(--color-muted);
+  }
+
+  /* The linen itself: a faint woven texture. One static fixed layer behind
+     all content (the graph canvas is transparent, so the weave shows through). */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      repeating-linear-gradient(0deg, rgb(42 36 32 / 0.022) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(90deg, rgb(42 36 32 / 0.02) 0 1px, transparent 1px 3px);
+  }
+}
+
+/* ————— Entry motion: rise-and-settle, gated on reduced motion ————— */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 600ms var(--ease-thread) both;
+  animation-delay: calc(var(--rise-index, 0) * 80ms);
+}
+
+.reveal {
+  opacity: 0;
+}
+.reveal.is-visible {
+  animation: rise 600ms var(--ease-thread) both;
+  animation-delay: calc(var(--rise-index, 0) * 80ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+  .reveal {
+    opacity: 1;
+  }
+  .reveal.is-visible {
+    animation: none;
+  }
+}
+
+/* ————— Markdown reading surface ————— */
+
+.md-prose {
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--color-ink);
+}
+
+.md-prose > *:first-child {
+  margin-top: 0;
+}
+
+.md-prose h1,
+.md-prose h2,
+.md-prose h3,
+.md-prose h4 {
+  font-family: var(--font-display);
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 2.25em 0 0.6em;
+}
+
+.md-prose h1 {
+  font-size: 2.25rem;
+}
+.md-prose h2 {
+  font-size: 1.625rem;
+}
+.md-prose h3 {
+  font-size: 1.3125rem;
+}
+.md-prose h4 {
+  font-size: 1.125rem;
+}
+
+.md-prose p {
+  margin: 0.9em 0;
+}
+
+.md-prose a {
+  color: var(--color-burgundy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.md-prose a:hover {
+  color: var(--color-burgundy-deep);
+}
+
+.md-prose strong {
+  font-weight: 600;
+}
+
+.md-prose ul,
+.md-prose ol {
+  margin: 0.9em 0;
+  padding-left: 1.5em;
+}
+.md-prose ul {
+  list-style: disc;
+}
+.md-prose ol {
+  list-style: decimal;
+}
+.md-prose li {
+  margin: 0.3em 0;
+}
+.md-prose li::marker {
+  color: var(--color-muted);
+}
+
+.md-prose blockquote {
+  margin: 1.2em 0;
+  padding-left: 1.1em;
+  border-left: 2px solid var(--color-burgundy);
+  color: var(--color-muted);
+}
+
+.md-prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+  margin: 2.5em 0;
+}
+
+.md-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-linen-raw);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+}
+
+.md-prose pre {
+  background: var(--color-linen-raw);
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1.3em 0;
+  line-height: 1.55;
+}
+
+.md-prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.md-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.3em 0;
+  font-size: 0.9375rem;
+}
+.md-prose th,
+.md-prose td {
+  border: 1px solid var(--color-hairline);
+  padding: 0.5em 0.8em;
+  text-align: left;
+}
+.md-prose th {
+  font-weight: 600;
+  background: var(--color-linen-raw);
+}
+
+/* ————— Code highlighting: warm, restrained ————— */
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta,
+.hljs-doctag {
+  color: var(--color-burgundy);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--color-moss);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-deletion {
+  color: var(--color-burgundy-deep);
+}
+
+.hljs-title,
+.hljs-name,
+.hljs-section,
+.hljs-built_in {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-type,
+.hljs-params {
+  color: var(--color-ink);
+}

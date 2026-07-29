@@ -1,0 +1,11 @@
+{
+  "id": "retrieval",
+  "nombre": "Retrieval",
+  "resumen": "Fetching the most relevant passages for a query from a corpus, using keyword, vector, or hybrid search.",
+  "relaciones": [
+    {
+      "id": "embeddings",
+      "tipo": "requiere"
+    }
+  ]
+}

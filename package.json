@@ -1,0 +1,38 @@
+{
+  "name": "telar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "server"
+  ],
+  "bin": {
+    "telar": "bin/telar.js"
+  },
+  "files": [
+    "bin",
+    "server/dist",
+    "frontend/dist",
+    ".claude/skills"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,magenta \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "npm run dev -w frontend",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w frontend && npm run build -w server",
+    "typecheck": "npm run typecheck -w frontend && npm run typecheck -w server",
+    "seed": "node scripts/seed.mjs",
+    "serve": "node bin/telar.js",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "hono": "^4.12.28"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

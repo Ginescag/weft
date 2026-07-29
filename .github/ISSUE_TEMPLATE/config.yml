@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/
+    about: For open-ended questions, prefer a Discussion over an issue (update this URL to your repo's Discussions).

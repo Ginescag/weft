@@ -1,0 +1,6 @@
+{
+  "id": "embeddings",
+  "nombre": "Embeddings",
+  "resumen": "Dense vectors that place text (or images) in a semantic space where nearby points mean similar things.",
+  "relaciones": []
+}

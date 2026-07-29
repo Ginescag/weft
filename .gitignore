@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output (rebuilt with `npm run build`; shipped via the package "files" field)
+dist/
+**/dist/
+*.tsbuildinfo
+
+# Packaging artifacts (`npm pack`)
+*.tgz
+
+# Your local learning project — create it with `npm run seed`.
+# It's your working copy, not repo data (see examples/starter-master for the seed).
+/TELAR-MASTER/
+/IA-DOCS/
+
+# Logs & caches
+*.log
+npm-debug.log*
+.npm/
+.vite/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+# Certificates (e.g. the root-CA PEM used for the npm TLS workaround — see CONTRIBUTING.md)
+*.pem
+
+# Editor / OS cruft
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Claude Code local state — but keep the shipped skill tracked.
+.claude/*
+!.claude/skills/
+.claude/settings.local.json
+
+

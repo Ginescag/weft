@@ -1,0 +1,15 @@
+{
+  "id": "rag",
+  "nombre": "RAG",
+  "resumen": "Retrieval-Augmented Generation: fetch relevant documents and place them in the prompt so the model answers from grounded, up-to-date context.",
+  "relaciones": [
+    {
+      "id": "retrieval",
+      "tipo": "requiere"
+    },
+    {
+      "id": "chunking",
+      "tipo": "relacionado_con"
+    }
+  ]
+}

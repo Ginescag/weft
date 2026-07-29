@@ -1,0 +1,50 @@
+{
+  "nodos": [
+    {
+      "id": "chunking",
+      "nombre": "Chunking",
+      "ruta": "chunking",
+      "resumen": "Splitting documents into passages sized for embedding and retrieval — chunk boundaries strongly affect RAG quality."
+    },
+    {
+      "id": "embeddings",
+      "nombre": "Embeddings",
+      "ruta": "embeddings",
+      "resumen": "Dense vectors that place text (or images) in a semantic space where nearby points mean similar things."
+    },
+    {
+      "id": "rag",
+      "nombre": "RAG",
+      "ruta": "rag",
+      "resumen": "Retrieval-Augmented Generation: fetch relevant documents and place them in the prompt so the model answers from grounded, up-to-date context."
+    },
+    {
+      "id": "retrieval",
+      "nombre": "Retrieval",
+      "ruta": "retrieval",
+      "resumen": "Fetching the most relevant passages for a query from a corpus, using keyword, vector, or hybrid search."
+    }
+  ],
+  "aristas": [
+    {
+      "de": "embeddings",
+      "a": "chunking",
+      "tipo": "requiere"
+    },
+    {
+      "de": "retrieval",
+      "a": "rag",
+      "tipo": "requiere"
+    },
+    {
+      "de": "chunking",
+      "a": "rag",
+      "tipo": "relacionado_con"
+    },
+    {
+      "de": "embeddings",
+      "a": "retrieval",
+      "tipo": "requiere"
+    }
+  ]
+}

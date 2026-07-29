@@ -1,0 +1,14 @@
+{
+  "tarjetas": [
+    {
+      "id": "chk-f1",
+      "anverso": "Fixed-size vs recursive chunking?",
+      "reverso": "Fixed-size splits by a token/char count; recursive splits along structure (paragraphs, sentences) and only falls back to a size cut when needed."
+    },
+    {
+      "id": "chk-f2",
+      "anverso": "A common reason retrieval misses an answer that IS in the corpus?",
+      "reverso": "The relevant text was split across a chunk boundary, or the chunk was too large for the query to rank it."
+    }
+  ]
+}
