@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ClockCounterClockwise, MagnifyingGlass, Plus } from '@phosphor-icons/react'
 import { api } from '../lib/api'
-import type { Flecha, Graph, GraphEdge, GraphNode, Sticky } from '../lib/types'
+import type { Flecha, Graph, GraphEdge, GraphNode, MarcoConMiembros, Sticky } from '../lib/types'
 import NeedleGraph, { type NeedleGraphHandle } from '../components/NeedleGraph'
 import NewConceptDialog from '../components/NewConceptDialog'
 import SearchCommand from '../components/SearchCommand'
@@ -42,6 +42,7 @@ export default function GraphScreen() {
   const [graph, setGraph] = useState<Graph | null>(null)
   const [stickies, setStickies] = useState<Sticky[] | null>(null)
   const [arrows, setArrows] = useState<Flecha[] | null>(null)
+  const [frames, setFrames] = useState<MarcoConMiembros[] | null>(null)
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -49,13 +50,14 @@ export default function GraphScreen() {
 
   useEffect(() => {
     let alive = true
-    Promise.all([api.getGraph(), api.getStickies(), api.getLayout(), api.getArrows()])
-      .then(([g, s, l, a]) => {
+    Promise.all([api.getGraph(), api.getStickies(), api.getLayout(), api.getArrows(), api.getFrames()])
+      .then(([g, s, l, a, f]) => {
         if (!alive) return
         setGraph(g)
         setStickies(s)
         setPositions(l)
         setArrows(a)
+        setFrames(f)
       })
       .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)))
     return () => {
@@ -133,7 +135,7 @@ export default function GraphScreen() {
       <main className="relative flex-1">
         {error ? (
           <ErrorState message={error} />
-        ) : !graph || !stickies || !positions || !arrows ? (
+        ) : !graph || !stickies || !positions || !arrows || !frames ? (
           <Loading />
         ) : graph.nodos.length === 0 ? (
           <EmptyState
@@ -147,6 +149,7 @@ export default function GraphScreen() {
               graph={graph}
               stickies={stickies}
               arrows={arrows}
+              frames={frames}
               positions={positions}
               onOpen={(id) => navigate(`/concept/${id}/lessons`)}
               onConnect={handleConnect}

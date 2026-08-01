@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
-import type { ContentFolder, ErrorSource, Flecha, RelationType, Sticky } from './types.js'
+import type { ContentFolder, ErrorSource, Flecha, Marco, RelationType, Sticky } from './types.js'
 import { HttpError, type Master } from './master.js'
 
 export interface ApiOptions {
@@ -165,6 +165,25 @@ export function createApi(master: Master, opts: ApiOptions): Hono {
 
   app.delete('/api/arrows/:id', async (c) => {
     await master.deleteArrow(c.req.param('id'))
+    return c.body(null, 204)
+  })
+
+  // --- canvas writes (frames / regions) -------------------------------------
+  // GET returns each frame with its derived `miembros` (concept ids inside it).
+  app.get('/api/frames', async (c) => c.json({ marcos: await master.getFrames() }))
+
+  app.post('/api/frames', async (c) => {
+    const body = await c.req.json<Partial<Omit<Marco, 'id'>>>()
+    return c.json(await master.createFrame(body), 201)
+  })
+
+  app.put('/api/frames/:id', async (c) => {
+    const body = await c.req.json<Partial<Omit<Marco, 'id'>>>()
+    return c.json(await master.updateFrame(c.req.param('id'), body))
+  })
+
+  app.delete('/api/frames/:id', async (c) => {
+    await master.deleteFrame(c.req.param('id'))
     return c.body(null, 204)
   })
 

@@ -12,9 +12,18 @@ import fcose from 'cytoscape-fcose'
 import edgehandles from 'cytoscape-edgehandles'
 import * as Dialog from '@radix-ui/react-dialog'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { ArrowRight, CornersOut, FlowArrow, Minus, NoteBlank, Plus, Scissors } from '@phosphor-icons/react'
+import {
+  ArrowRight,
+  BoundingBox,
+  CornersOut,
+  FlowArrow,
+  Minus,
+  NoteBlank,
+  Plus,
+  Scissors,
+} from '@phosphor-icons/react'
 import { api } from '../lib/api'
-import type { Flecha, Graph, GraphEdge, RelationType, Sticky, StickyColor } from '../lib/types'
+import type { Flecha, Graph, GraphEdge, Marco, RelationType, Sticky, StickyColor } from '../lib/types'
 
 cytoscape.use(fcose)
 cytoscape.use(edgehandles)
@@ -44,10 +53,26 @@ const PRESET_TINTS = [LEGACY_TINT.sand, LEGACY_TINT.moss, LEGACY_TINT.sky, LEGAC
 const colorToHex = (c: string): string =>
   c && c.startsWith('#') ? c : (LEGACY_TINT[c] ?? LEGACY_TINT.sand)
 
+/** A stored colour → an rgba() string with the given alpha — for the faint fills
+ *  and borders of a frame region, where the same hue serves line and wash. */
+function hexAlpha(c: string, a: number): string {
+  const h = colorToHex(c)
+  const r = parseInt(h.slice(1, 3), 16)
+  const g = parseInt(h.slice(3, 5), 16)
+  const b = parseInt(h.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
 // Free corner-resize clamps — kept in sync with the server's cleanSize.
 const STICKY_MIN = 100
 const STICKY_MAX = 6000
 const STICKY_DEFAULT = { ancho: 260, alto: 170 }
+
+// Frames (regions): named containers that encapsulate a subgraph. Bigger clamps
+// than a sticky — a frame can wrap a whole subgraph. Mirrors the server.
+const FRAME_MIN = 200
+const FRAME_MAX = 40000
+const FRAME_DEFAULT_COLOR = BURGUNDY
 
 // Roadmap arrows: free-floating canvas annotations. Thick by default so they
 // read as a "roadmap" over the regions; width clamps mirror the server.
@@ -73,6 +98,24 @@ function stickyFonts(s: { ancho: number; alto: number }) {
   const title = Math.round(clamp(base * 0.11, 14, 46))
   const body = Math.round(clamp(base * 0.062, 11, 26))
   return { title, body, tab: Math.round(title * 1.9) }
+}
+
+/** Frame cy-ids are prefixed so they can never collide with a concept id. */
+const frameCyId = (id: string) => `frame:${id}`
+
+/** The cy node is only an invisible hit-box (drag / select / resize target);
+ *  the visible frame lives as HTML in the underlay, behind the stickies. */
+function frameNodeData(m: Marco) {
+  return { id: frameCyId(m.id), frameId: m.id, frame: 1, ancho: m.ancho, alto: m.alto }
+}
+
+/** A frame's title grows with the frame — these regions are big, so the label is
+ *  big too — and its dashed border thickens with size so it reads at any zoom. */
+function frameTitleFont(m: { ancho: number; alto: number }) {
+  const base = Math.min(m.ancho, m.alto * 1.6)
+  const title = Math.round(clamp(base * 0.09, 24, 260))
+  const border = Math.round(clamp(Math.min(m.ancho, m.alto) * 0.006, 3, 64))
+  return { title, border }
 }
 
 /**
@@ -149,6 +192,21 @@ const STYLE: any[] = [
     // and anchors the resize grip). The visible note is HTML in the underlay,
     // painted beneath the whole canvas — always under needles and threads.
     selector: 'node.sticky',
+    style: {
+      shape: 'round-rectangle',
+      width: 'data(ancho)',
+      height: 'data(alto)',
+      'background-image': 'none',
+      'background-opacity': 0,
+      'border-width': 0,
+      label: '',
+      'z-compound-depth': 'bottom',
+    },
+  },
+  {
+    // A frame's cy node is likewise just an invisible hit-box; the visible
+    // region is HTML in the underlay, painted furthest back (under stickies too).
+    selector: 'node.frame',
     style: {
       shape: 'round-rectangle',
       width: 'data(ancho)',
@@ -337,12 +395,21 @@ interface StickyEditState {
   color: StickyColor
 }
 
+/** The frame being edited in the dialog (position/size are edited on-canvas). */
+interface FrameEditState {
+  id: string
+  nombre: string
+  color: string
+}
+
 interface NeedleGraphProps {
   graph: Graph
   /** Sticky annotations at mount; later changes are made on-canvas. */
   stickies: Sticky[]
   /** Roadmap-arrow annotations at mount; later changes are made on-canvas. */
   arrows: Flecha[]
+  /** Frame (region) annotations at mount; later changes are made on-canvas. */
+  frames: Marco[]
   /** Saved needle positions at mount; empty means "never laid out". */
   positions: Record<string, { x: number; y: number }>
   onOpen: (id: string) => void
@@ -436,6 +503,7 @@ export default function NeedleGraph({
   graph,
   stickies,
   arrows,
+  frames,
   positions,
   onOpen,
   onConnect,
@@ -460,10 +528,17 @@ export default function NeedleGraph({
   const initialGraph = useRef(graph)
   const initialStickies = useRef(stickies)
   const initialArrows = useRef(arrows)
+  const initialFrames = useRef(frames)
   const initialPositions = useRef(positions)
   const [hover, setHover] = useState<HoverInfo | null>(null)
   const [drawMode, setDrawMode] = useState(false)
   const drawModeRef = useRef(false)
+  // Frame generator: a draw mode where a drag rubber-bands the frame's rectangle.
+  const [frameDraw, setFrameDraw] = useState(false)
+  const frameDrawRef = useRef(false)
+  // The in-progress rubber-band rectangle, in container-local screen px.
+  const [drawRect, setDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const drawStartRef = useRef<{ x: number; y: number } | null>(null)
   const [pending, setPending] = useState<PendingThread | null>(null)
   const pendingRef = useRef<PendingThread | null>(null)
   const [edgeMenu, setEdgeMenu] = useState<EdgeMenu | null>(null)
@@ -474,6 +549,19 @@ export default function NeedleGraph({
   const stickyListRef = useRef(stickyList)
   stickyListRef.current = stickyList
   const stickyDivs = useRef(new Map<string, HTMLDivElement>())
+  // Frames own the same canvas-state pattern: cy holds the hit-box, this list
+  // drives the HTML underlay (painted behind stickies), every mutation patches both.
+  const [frameList, setFrameList] = useState<Marco[]>(initialFrames.current)
+  const frameListRef = useRef(frameList)
+  frameListRef.current = frameList
+  const frameDivs = useRef(new Map<string, HTMLDivElement>())
+  const [frameEdit, setFrameEdit] = useState<FrameEditState | null>(null)
+  // A frame drag tows the needles/stickies inside it: captured at grab time.
+  const frameDragRef = useRef<{
+    fx0: number
+    fy0: number
+    members: { node: cytoscape.NodeSingular; x: number; y: number }[]
+  } | null>(null)
   // Roadmap arrows: free canvas objects. The underlay paints the lines (model
   // coords); their drag handles are screen-space DOM above the canvas.
   const [arrowList, setArrowList] = useState<Flecha[]>(initialArrows.current)
@@ -496,12 +584,15 @@ export default function NeedleGraph({
   } | null>(null)
   const underlayRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<HTMLDivElement>(null)
-  const [resizeTarget, setResizeTarget] = useState<string | null>(null)
-  const resizeTargetRef = useRef<string | null>(null)
+  // The corner grip resizes a sticky OR a frame; the target carries which.
+  type ResizeTarget = { kind: 'sticky' | 'frame'; id: string }
+  const [resizeTarget, setResizeTarget] = useState<ResizeTarget | null>(null)
+  const resizeTargetRef = useRef<ResizeTarget | null>(null)
   const overHandleRef = useRef(false)
   const hideHandleTimer = useRef<number | undefined>(undefined)
   const resizingRef = useRef<{
     id: string
+    kind: 'sticky' | 'frame'
     mx: number
     my: number
     x: number
@@ -519,13 +610,20 @@ export default function NeedleGraph({
     setArrowList((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)))
   }
 
-  /** Pin the resize grip to the bottom-right corner of its sticky, in screen px. */
+  const patchFrame = (id: string, patch: Partial<Marco>) => {
+    setFrameList((list) => list.map((m) => (m.id === id ? { ...m, ...patch } : m)))
+  }
+
+  /** The prefixed cy id of a resize target (sticky or frame). */
+  const resizeCyId = (t: ResizeTarget) => (t.kind === 'sticky' ? stickyCyId(t.id) : frameCyId(t.id))
+
+  /** Pin the resize grip to the bottom-right corner of its sticky/frame, in screen px. */
   const syncResizeHandle = () => {
     const cy = cyRef.current
     const el = handleRef.current
-    const id = resizeTargetRef.current
-    if (!cy || cy.destroyed() || !el || !id) return
-    const node = cy.getElementById(stickyCyId(id))
+    const t = resizeTargetRef.current
+    if (!cy || cy.destroyed() || !el || !t) return
+    const node = cy.getElementById(resizeCyId(t))
     if (node.empty()) return
     const zoom = cy.zoom()
     const p = (node as cytoscape.NodeSingular).renderedPosition()
@@ -564,10 +662,10 @@ export default function NeedleGraph({
     syncArrows()
   }
 
-  const showResizeHandle = (id: string) => {
+  const showResizeHandle = (target: ResizeTarget) => {
     window.clearTimeout(hideHandleTimer.current)
-    resizeTargetRef.current = id
-    setResizeTarget(id)
+    resizeTargetRef.current = target
+    setResizeTarget(target)
   }
 
   /** Hide the grip shortly after the pointer leaves sticky and grip alike. */
@@ -582,16 +680,17 @@ export default function NeedleGraph({
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     const cy = cyRef.current
-    const id = resizeTargetRef.current
-    if (!cy || cy.destroyed() || !id) return
-    const node = cy.getElementById(stickyCyId(id))
+    const t = resizeTargetRef.current
+    if (!cy || cy.destroyed() || !t) return
+    const node = cy.getElementById(resizeCyId(t))
     if (node.empty()) return
     event.preventDefault()
     event.stopPropagation()
     event.currentTarget.setPointerCapture(event.pointerId)
     const p = (node as cytoscape.NodeSingular).position()
     resizingRef.current = {
-      id,
+      id: t.id,
+      kind: t.kind,
       mx: event.clientX,
       my: event.clientY,
       x: p.x,
@@ -605,17 +704,20 @@ export default function NeedleGraph({
     const r = resizingRef.current
     const cy = cyRef.current
     if (!r || !cy || cy.destroyed()) return
-    const node = cy.getElementById(stickyCyId(r.id))
+    const node = cy.getElementById(r.kind === 'sticky' ? stickyCyId(r.id) : frameCyId(r.id))
     if (node.empty()) return
     const zoom = cy.zoom()
+    const lo = r.kind === 'sticky' ? STICKY_MIN : FRAME_MIN
+    const hi = r.kind === 'sticky' ? STICKY_MAX : FRAME_MAX
     // Anchor the top-left corner: the centre shifts by half the size delta.
-    const ancho = Math.round(clamp(r.ancho + (event.clientX - r.mx) / zoom, STICKY_MIN, STICKY_MAX))
-    const alto = Math.round(clamp(r.alto + (event.clientY - r.my) / zoom, STICKY_MIN, STICKY_MAX))
+    const ancho = Math.round(clamp(r.ancho + (event.clientX - r.mx) / zoom, lo, hi))
+    const alto = Math.round(clamp(r.alto + (event.clientY - r.my) / zoom, lo, hi))
     const x = Math.round(r.x + (ancho - r.ancho) / 2)
     const y = Math.round(r.y + (alto - r.alto) / 2)
     node.data({ ancho, alto })
     ;(node as cytoscape.NodeSingular).position({ x, y })
-    patchSticky(r.id, { ancho, alto, x, y })
+    if (r.kind === 'sticky') patchSticky(r.id, { ancho, alto, x, y })
+    else patchFrame(r.id, { ancho, alto, x, y })
     syncResizeHandle()
   }
 
@@ -625,17 +727,17 @@ export default function NeedleGraph({
     if (!r) return
     const cy = cyRef.current
     if (cy && !cy.destroyed()) {
-      const node = cy.getElementById(stickyCyId(r.id))
+      const node = cy.getElementById(r.kind === 'sticky' ? stickyCyId(r.id) : frameCyId(r.id))
       if (!node.empty()) {
         const p = (node as cytoscape.NodeSingular).position()
-        void api
-          .updateSticky(r.id, {
-            x: Math.round(p.x),
-            y: Math.round(p.y),
-            ancho: node.data('ancho') as number,
-            alto: node.data('alto') as number,
-          })
-          .catch(() => {})
+        const patch = {
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          ancho: node.data('ancho') as number,
+          alto: node.data('alto') as number,
+        }
+        const save = r.kind === 'sticky' ? api.updateSticky(r.id, patch) : api.updateFrame(r.id, patch)
+        void save.catch(() => {})
       }
     }
     hideResizeHandleSoon()
@@ -726,6 +828,125 @@ export default function NeedleGraph({
     if (edit) deleteArrowById(edit.id)
   }
 
+  // --- Frame generator: drag a rectangle on the canvas to place a frame -------
+  // "+ frame" toggles a draw mode; a drag on the overlay rubber-bands a rectangle
+  // (any size, anywhere); on release it becomes a frame, then the title dialog opens.
+  const exitFrameDraw = () => {
+    frameDrawRef.current = false
+    setFrameDraw(false)
+    setDrawRect(null)
+    drawStartRef.current = null
+  }
+
+  const toggleFrameDraw = () => {
+    const next = !frameDrawRef.current
+    if (!next) {
+      exitFrameDraw()
+      return
+    }
+    if (drawModeRef.current) toggleDrawMode() // frame-draw and thread-draw are exclusive
+    setHover(null)
+    frameDrawRef.current = true
+    setFrameDraw(true)
+  }
+
+  /** clientX/Y → coordinates local to the canvas container. */
+  const containerLocal = (clientX: number, clientY: number) => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) }
+  }
+
+  const startFrameDrawAt = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!frameDrawRef.current) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const p = containerLocal(event.clientX, event.clientY)
+    drawStartRef.current = p
+    setDrawRect({ x: p.x, y: p.y, w: 0, h: 0 })
+  }
+
+  const moveFrameDraw = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const s = drawStartRef.current
+    if (!s) return
+    const p = containerLocal(event.clientX, event.clientY)
+    setDrawRect({
+      x: Math.min(s.x, p.x),
+      y: Math.min(s.y, p.y),
+      w: Math.abs(p.x - s.x),
+      h: Math.abs(p.y - s.y),
+    })
+  }
+
+  const endFrameDraw = async (event: ReactPointerEvent<HTMLDivElement>) => {
+    const s = drawStartRef.current
+    exitFrameDraw() // leave the mode whatever happens
+    if (!s) return
+    const cy = cyRef.current
+    if (!cy) return
+    const p = containerLocal(event.clientX, event.clientY)
+    const rx = Math.min(s.x, p.x)
+    const ry = Math.min(s.y, p.y)
+    const rw = Math.abs(p.x - s.x)
+    const rh = Math.abs(p.y - s.y)
+    if (rw < 24 || rh < 24) return // a click, not a drag — no frame
+    // Container-local screen rect → model rect (inverse of the underlay transform).
+    const pan = cy.pan()
+    const zoom = cy.zoom()
+    const mx1 = (rx - pan.x) / zoom
+    const my1 = (ry - pan.y) / zoom
+    const ancho = Math.round(clamp(rw / zoom, FRAME_MIN, FRAME_MAX))
+    const alto = Math.round(clamp(rh / zoom, FRAME_MIN, FRAME_MAX))
+    const x = Math.round(mx1 + ancho / 2)
+    const y = Math.round(my1 + alto / 2)
+    try {
+      const frame = await api.createFrame({ nombre: '', x, y, ancho, alto, color: FRAME_DEFAULT_COLOR })
+      cy.add({
+        group: 'nodes',
+        data: frameNodeData(frame),
+        position: { x: frame.x, y: frame.y },
+        classes: 'frame',
+      })
+      setFrameList((list) => [...list, frame])
+      setFrameEdit({ id: frame.id, nombre: frame.nombre, color: frame.color })
+    } catch {
+      // Frame creation failing quietly leaves the canvas intact.
+    }
+  }
+
+  const saveFrameEdit = (next: FrameEditState) => {
+    patchFrame(next.id, { nombre: next.nombre, color: next.color })
+    setFrameEdit(null)
+    void api.updateFrame(next.id, { nombre: next.nombre, color: next.color }).catch(() => {})
+  }
+
+  const deleteFrameNode = (node: cytoscape.NodeSingular) => {
+    const id = node.data('frameId') as string
+    node.remove()
+    setFrameList((list) => list.filter((m) => m.id !== id))
+    frameDivs.current.delete(id)
+    if (resizeTargetRef.current?.kind === 'frame' && resizeTargetRef.current.id === id) {
+      resizeTargetRef.current = null
+      setResizeTarget(null)
+    }
+    void api.deleteFrame(id).catch(() => {})
+  }
+
+  const deleteFrameEdit = () => {
+    const edit = frameEdit
+    setFrameEdit(null)
+    if (!edit) return
+    const cy = cyRef.current
+    if (cy) {
+      const node = cy.getElementById(frameCyId(edit.id))
+      if (!node.empty()) {
+        deleteFrameNode(node as cytoscape.NodeSingular)
+        return
+      }
+    }
+    setFrameList((list) => list.filter((m) => m.id !== edit.id))
+    void api.deleteFrame(edit.id).catch(() => {})
+  }
+
   /** Debounced full-position save: the loom remembers where every needle sits. */
   const persistLayoutSoon = () => {
     window.clearTimeout(layoutTimer.current)
@@ -733,7 +954,7 @@ export default function NeedleGraph({
       const cy = cyRef.current
       if (!cy || cy.destroyed()) return
       const posiciones: Record<string, { x: number; y: number }> = {}
-      cy.nodes('[!sticky]').forEach((n) => {
+      cy.nodes('[!sticky][!frame]').forEach((n) => {
         if (n.hasClass('eh-ghost-node')) return
         const p = n.position()
         posiciones[n.id()] = { x: Math.round(p.x), y: Math.round(p.y) }
@@ -766,7 +987,7 @@ export default function NeedleGraph({
     const id = node.data('stickyId') as string
     node.remove()
     setStickyList((list) => list.filter((s) => s.id !== id))
-    if (resizeTargetRef.current === id) {
+    if (resizeTargetRef.current?.kind === 'sticky' && resizeTargetRef.current.id === id) {
       resizeTargetRef.current = null
       setResizeTarget(null)
     }
@@ -863,6 +1084,7 @@ export default function NeedleGraph({
     setDrawMode(next)
     setHover(null)
     if (next) {
+      if (frameDrawRef.current) exitFrameDraw() // the two draw modes are exclusive
       ehRef.current?.enableDrawMode()
     } else {
       ehRef.current?.disableDrawMode()
@@ -934,6 +1156,11 @@ export default function NeedleGraph({
           position: { x: s.x, y: s.y },
           classes: 'sticky',
         })),
+        ...initialFrames.current.map((m) => ({
+          data: frameNodeData(m),
+          position: { x: m.x, y: m.y },
+          classes: 'frame',
+        })),
       ],
       style: STYLE,
       // Positions come from .telar/layout.json (preset); fcose only weaves the
@@ -953,7 +1180,7 @@ export default function NeedleGraph({
     // First load ever: weave the initial layout with fcose (needles + threads
     // only), then remember it so every later load is stable. With a saved
     // layout, only needles that appeared since the last save need a spot.
-    const needles = cy.nodes('[!sticky]')
+    const needles = cy.nodes('[!sticky][!frame]')
     const unplaced = needles.filter((n) => saved[n.id()] === undefined)
     if (needles.length > 0 && unplaced.length === needles.length) {
       needles
@@ -962,12 +1189,18 @@ export default function NeedleGraph({
         .layout({ name: 'fcose', animate: false, idealEdgeLength: 170, nodeRepulsion: 14000, padding: FIT_PADDING } as any)
         .run()
     } else if (unplaced.length > 0) {
+      // New needles with no saved spot (e.g. an AI batch that skipped set_positions):
+      // lay them out in a grid to the RIGHT of the existing weave, not on top of it,
+      // so a fresh subgraph never buries an old one. (Framed batches are placed
+      // server-side; this is the fallback for unframed ones.)
       const placed = needles.difference(unplaced)
       const bb = placed.boundingBox()
-      unplaced.forEach((n) => {
+      const startX = bb.x2 + 320
+      const cols = Math.max(1, Math.round(Math.sqrt(unplaced.length)))
+      unplaced.forEach((n, i) => {
         n.position({
-          x: (bb.x1 + bb.x2) / 2 + (Math.random() - 0.5) * 120,
-          y: (bb.y1 + bb.y2) / 2 + (Math.random() - 0.5) * 120,
+          x: startX + (i % cols) * 200,
+          y: bb.y1 + Math.floor(i / cols) * 160,
         })
       })
     }
@@ -986,6 +1219,71 @@ export default function NeedleGraph({
       }
       syncResizeHandle()
     })
+    cy.on('position', 'node.frame', (event) => {
+      const node = event.target as cytoscape.NodeSingular
+      const div = frameDivs.current.get(node.data('frameId') as string)
+      if (div) {
+        const p = node.position()
+        div.style.left = `${p.x - (node.data('ancho') as number) / 2}px`
+        div.style.top = `${p.y - (node.data('alto') as number) / 2}px`
+      }
+      syncResizeHandle()
+    })
+
+    // Moving a frame tows everything inside it. Capture the members (needles +
+    // stickies whose centre is inside the rect) at grab time, then translate them
+    // by the frame's delta as it drags — encapsulation you can feel.
+    cy.on('grab', 'node.frame', (event) => {
+      const frame = event.target as cytoscape.NodeSingular
+      const p = frame.position()
+      const halfW = (frame.data('ancho') as number) / 2
+      const halfH = (frame.data('alto') as number) / 2
+      const x1 = p.x - halfW
+      const x2 = p.x + halfW
+      const y1 = p.y - halfH
+      const y2 = p.y + halfH
+      const members = cy
+        .nodes('[!frame]')
+        .filter((n) => {
+          const q = (n as cytoscape.NodeSingular).position()
+          return q.x >= x1 && q.x <= x2 && q.y >= y1 && q.y <= y2
+        })
+        .map((n) => {
+          const node = n as cytoscape.NodeSingular
+          const q = node.position()
+          return { node, x: q.x, y: q.y }
+        })
+      frameDragRef.current = { fx0: p.x, fy0: p.y, members }
+    })
+    cy.on('drag', 'node.frame', (event) => {
+      const d = frameDragRef.current
+      if (!d) return
+      const p = (event.target as cytoscape.NodeSingular).position()
+      const dx = p.x - d.fx0
+      const dy = p.y - d.fy0
+      d.members.forEach((m) => m.node.position({ x: m.x + dx, y: m.y + dy }))
+    })
+    cy.on('free', 'node.frame', (event) => {
+      const frame = event.target as cytoscape.NodeSingular
+      const d = frameDragRef.current
+      frameDragRef.current = null
+      const p = frame.position()
+      const id = frame.data('frameId') as string
+      patchFrame(id, { x: Math.round(p.x), y: Math.round(p.y) })
+      void api.updateFrame(id, { x: Math.round(p.x), y: Math.round(p.y) }).catch(() => {})
+      if (!d) return
+      // Persist the towed needles (whole layout) and each towed sticky.
+      persistLayoutSoon()
+      d.members.forEach((m) => {
+        if (!m.node.data('sticky')) return
+        const sp = m.node.position()
+        const sx = Math.round(sp.x)
+        const sy = Math.round(sp.y)
+        const sid = m.node.data('stickyId') as string
+        patchSticky(sid, { x: sx, y: sy })
+        void api.updateSticky(sid, { x: sx, y: sy }).catch(() => {})
+      })
+    })
     syncUnderlay()
 
     const smoothZoom = createSmoothZoom(cy, container)
@@ -997,6 +1295,8 @@ export default function NeedleGraph({
       canConnect: (source, target) =>
         !source.data('sticky') &&
         !target.data('sticky') &&
+        !source.data('frame') &&
+        !target.data('frame') &&
         !source.same(target) &&
         source.edgesWith(target).empty(),
       snap: true,
@@ -1007,7 +1307,7 @@ export default function NeedleGraph({
     // Threads are sewn between needles; a drag starting on a sticky is cancelled.
     cy.on('ehstart', (_event, ...extra) => {
       const [source] = extra as [cytoscape.NodeSingular]
-      if (source.data('sticky')) eh.stop()
+      if (source.data('sticky') || source.data('frame')) eh.stop()
     })
 
     cy.on('ehcomplete', (_event, ...extra) => {
@@ -1034,7 +1334,8 @@ export default function NeedleGraph({
 
     cy.on('tap', 'node', (event) => {
       if (drawModeRef.current) return // taps draw threads, they do not navigate
-      if (event.target.data('sticky')) return // stickies select and drag, nothing more
+      // Stickies and frames select and drag, nothing more — they never navigate.
+      if (event.target.data('sticky') || event.target.data('frame')) return
       onOpenRef.current(event.target.id())
     })
     cy.on('tap', (event) => {
@@ -1068,9 +1369,17 @@ export default function NeedleGraph({
       if (s) setStickyEdit({ id: s.id, titulo: s.titulo, texto: s.texto, color: s.color })
     })
 
+    // Double-tap a frame to edit its title / colour.
+    cy.on('dbltap', 'node.frame', (event) => {
+      const id = event.target.data('frameId') as string
+      const m = frameListRef.current.find((fr) => fr.id === id)
+      if (m) setFrameEdit({ id: m.id, nombre: m.nombre, color: m.color })
+    })
+
     // Dropped needles re-save the whole layout; a dropped sticky saves itself
-    // (dragfreeon covers elements dragged along inside a box selection).
-    cy.on('dragfree dragfreeon', 'node[!sticky]', () => persistLayoutSoon())
+    // (dragfreeon covers elements dragged along inside a box selection). Frames
+    // persist through their own grab/drag/free handlers above, so exclude them.
+    cy.on('dragfree dragfreeon', 'node[!sticky][!frame]', () => persistLayoutSoon())
     cy.on('dragfree dragfreeon', 'node.sticky', (event) => {
       const node = event.target as cytoscape.NodeSingular
       const p = node.position()
@@ -1084,7 +1393,12 @@ export default function NeedleGraph({
       const node = event.target
       if (node.data('sticky')) {
         container.style.cursor = 'grab' // annotations drag; no hover card, no dimming
-        showResizeHandle(node.data('stickyId') as string)
+        showResizeHandle({ kind: 'sticky', id: node.data('stickyId') as string })
+        return
+      }
+      if (node.data('frame')) {
+        container.style.cursor = 'grab' // regions drag (towing contents); no hover card
+        showResizeHandle({ kind: 'frame', id: node.data('frameId') as string })
         return
       }
       if (drawModeRef.current) {
@@ -1109,7 +1423,7 @@ export default function NeedleGraph({
     })
     cy.on('mouseout', 'node', (event) => {
       container.style.cursor = ''
-      if (event.target.data('sticky')) hideResizeHandleSoon()
+      if (event.target.data('sticky') || event.target.data('frame')) hideResizeHandleSoon()
       event.target.removeClass('hovered')
       cy.elements().removeClass('dimmed thread-active')
       setHover(null)
@@ -1186,6 +1500,7 @@ export default function NeedleGraph({
         setSelectedArrow(null)
         if (pendingRef.current) cancelPending()
         else if (drawModeRef.current) toggleDrawMode()
+        else if (frameDrawRef.current) exitFrameDraw()
         return
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -1203,6 +1518,7 @@ export default function NeedleGraph({
         if (edges.length > 0) setEdgeMenu(null)
         edges.forEach((e) => cutEdge(e))
         cy.nodes('.sticky:selected').forEach((n) => deleteStickyNode(n))
+        cy.nodes('.frame:selected').forEach((n) => deleteFrameNode(n))
         if (selectedArrowRef.current) deleteArrowById(selectedArrowRef.current)
       }
     }
@@ -1226,6 +1542,17 @@ export default function NeedleGraph({
         className="pointer-events-none absolute left-0 top-0"
         style={{ transformOrigin: '0 0', zIndex: 0 }}
       >
+        {/* Frames first: painted furthest back, under stickies and needles alike. */}
+        {frameList.map((m) => (
+          <FrameRegion
+            key={m.id}
+            frame={m}
+            divRef={(el) => {
+              if (el) frameDivs.current.set(m.id, el)
+              else frameDivs.current.delete(m.id)
+            }}
+          />
+        ))}
         {stickyList.map((s) => (
           <StickyNote
             key={s.id}
@@ -1253,12 +1580,40 @@ export default function NeedleGraph({
         aria-label="Concept graph"
       />
 
+      {/* Frame generator: a full-canvas capture layer while in frame-draw mode.
+          A drag rubber-bands the frame's rectangle; release places the frame. */}
+      {frameDraw && (
+        <div
+          className="absolute inset-0 z-[6]"
+          style={{ cursor: 'crosshair', touchAction: 'none' }}
+          onPointerDown={startFrameDrawAt}
+          onPointerMove={moveFrameDraw}
+          onPointerUp={endFrameDraw}
+          onPointerCancel={endFrameDraw}
+          aria-label="Draw a frame"
+        >
+          {drawRect && (
+            <div
+              className="pointer-events-none absolute rounded-xl"
+              style={{
+                left: drawRect.x,
+                top: drawRect.y,
+                width: drawRect.w,
+                height: drawRect.h,
+                border: `2px dashed ${BURGUNDY}`,
+                background: 'rgba(122,46,58,0.05)',
+              }}
+            />
+          )}
+        </div>
+      )}
+
       {/* Corner grip: appears while hovering a sticky; dragging it resizes. */}
       {resizeTarget && (
         <div
           ref={handleRef}
           role="button"
-          aria-label="Resize sticky note"
+          aria-label="Resize note or frame"
           onPointerDown={startResize}
           onPointerMove={moveResize}
           onPointerUp={endResize}
@@ -1419,6 +1774,13 @@ export default function NeedleGraph({
         onDelete={deleteStickyEdit}
       />
 
+      <FrameDialog
+        edit={frameEdit}
+        onClose={() => setFrameEdit(null)}
+        onSave={saveFrameEdit}
+        onDelete={deleteFrameEdit}
+      />
+
       <ArrowDialog
         edit={arrowEdit}
         onClose={() => setArrowEdit(null)}
@@ -1430,6 +1792,7 @@ export default function NeedleGraph({
         <AnimatePresence>
           {drawMode && (
             <motion.p
+              key="draw"
               initial={reduceMotion ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
@@ -1439,10 +1802,36 @@ export default function NeedleGraph({
               Stretch a thread from one needle to another · <kbd>Esc</kbd> when done
             </motion.p>
           )}
+          {frameDraw && (
+            <motion.p
+              key="frame"
+              initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+              className="rounded-full border border-hairline bg-linen-bright px-4 py-2 text-xs text-muted"
+            >
+              Drag to draw a frame around a subgraph · <kbd>Esc</kbd> to cancel
+            </motion.p>
+          )}
         </AnimatePresence>
       </div>
 
       <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={toggleFrameDraw}
+          aria-label="Draw a frame (region)"
+          aria-pressed={frameDraw}
+          title="Draw a frame (region)"
+          className={`rounded-md border p-2.5 transition-colors active:scale-[0.95] ${
+            frameDraw
+              ? 'border-burgundy bg-burgundy text-linen-bright hover:bg-burgundy-deep'
+              : 'border-hairline bg-linen-bright text-muted hover:bg-linen-raw hover:text-ink'
+          }`}
+        >
+          <BoundingBox size={15} weight="bold" aria-hidden />
+        </button>
         <button
           type="button"
           onClick={() => void addSticky()}
@@ -1588,6 +1977,64 @@ function StickyNote({
   )
 }
 
+/** The visible frame: a bordered, faintly washed region with a folder-style
+ *  title tab. Rendered in model coords in the underlay, furthest back; its cy
+ *  hit-box handles drag (towing contents), select, resize and dbltap-edit. */
+function FrameRegion({
+  frame,
+  divRef,
+}: {
+  frame: Marco
+  divRef: (el: HTMLDivElement | null) => void
+}) {
+  const { title, border } = frameTitleFont(frame)
+  const hasTitle = (frame.nombre ?? '').trim() !== ''
+  const line = hexAlpha(frame.color, 0.75)
+  const ink = colorToHex(frame.color)
+  return (
+    <div
+      ref={divRef}
+      data-frame-region={frame.id}
+      style={{
+        position: 'absolute',
+        left: frame.x - frame.ancho / 2,
+        top: frame.y - frame.alto / 2,
+        width: frame.ancho,
+        height: frame.alto,
+        // No fill — just a dashed outline (the border thickens with the frame so
+        // it stays visible when the region is framed from far out).
+        border: `${border}px dashed ${line}`,
+        borderRadius: Math.max(16, border * 2.5),
+        background: 'transparent',
+        userSelect: 'none',
+        boxSizing: 'border-box',
+      }}
+    >
+      {hasTitle && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.round(title * 0.42),
+            top: Math.round(title * 0.32),
+            maxWidth: '92%',
+            fontFamily: 'var(--font-display)',
+            fontWeight: 600,
+            fontSize: title,
+            lineHeight: 1.02,
+            letterSpacing: '-0.02em',
+            color: ink,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {frame.nombre}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Edit a sticky: its title, body text and tint — or unpin it from the linen.
  *  Size is edited on the canvas by dragging the note's corner grip. */
 function StickyDialog({
@@ -1661,6 +2108,93 @@ function StickyDialog({
               className="rounded-md px-3 py-2 text-sm font-medium text-burgundy transition-colors hover:bg-burgundy/10 active:scale-[0.98]"
             >
               Unpin note
+            </button>
+            <div className="flex gap-3">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-hairline px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-linen-raw active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={save}
+                className="rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-linen-bright transition-colors hover:bg-burgundy-deep active:scale-[0.98]"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
+}
+
+/** Edit a frame: its title and colour, or remove it. Position and size are edited
+ *  on the canvas (drag to move — towing its contents — and the corner grip to resize). */
+function FrameDialog({
+  edit,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  edit: FrameEditState | null
+  onClose: () => void
+  onSave: (next: FrameEditState) => void
+  onDelete: () => void
+}) {
+  const [nombre, setNombre] = useState('')
+  const [color, setColor] = useState<string>(FRAME_DEFAULT_COLOR)
+
+  useEffect(() => {
+    if (!edit) return
+    setNombre(edit.nombre)
+    setColor(edit.color)
+  }, [edit])
+
+  const save = () => {
+    if (!edit) return
+    onSave({ id: edit.id, nombre, color })
+  }
+
+  return (
+    <Dialog.Root open={edit !== null} onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-ink/25" />
+        <Dialog.Content className="fixed left-1/2 top-1/3 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-hairline bg-linen-bright p-6 focus:outline-none">
+          <Dialog.Title className="font-display text-lg font-semibold tracking-tight">
+            Frame
+          </Dialog.Title>
+          <Dialog.Description className="mt-1 text-sm text-muted">
+            A named region that groups a subgraph. Drag it on the canvas to move it (its
+            contents come along); drag the corner to resize.
+          </Dialog.Description>
+
+          <input
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            autoFocus
+            spellCheck={false}
+            aria-label="Frame title"
+            placeholder="Title"
+            className="mt-4 w-full rounded-md border border-hairline bg-linen px-3.5 py-2.5 font-display text-xl font-semibold tracking-tight text-ink outline-none transition-colors placeholder:text-muted focus:border-burgundy/50"
+          />
+
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Colour</p>
+            <ColorField value={color} onChange={setColor} />
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded-md px-3 py-2 text-sm font-medium text-burgundy transition-colors hover:bg-burgundy/10 active:scale-[0.98]"
+            >
+              Remove frame
             </button>
             <div className="flex gap-3">
               <Dialog.Close asChild>

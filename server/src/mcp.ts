@@ -185,6 +185,30 @@ export async function startMCPServer(masterDir: string): Promise<void> {
         }),
     )
 
+    // Frames (regions) on the canvas: named containers that encapsulate a
+    // subgraph. Each frame carries its derived `miembros` (the concept ids inside
+    // its rect) — read this before building so you place new work in an empty
+    // region and keep its relations within the frame.
+    mcpServer.registerResource(
+        'frames',
+        'telar://frames',
+        {
+            title: 'Canvas frames (regions)',
+            description:
+                'The frames (regions) on the graph canvas (.telar/frames.json), each with its derived members (concept ids inside it). Use frames to keep a subgraph self-contained.',
+            mimeType: 'application/json',
+        },
+        async (uri) => ({
+            contents: [
+                {
+                    uri: uri.href,
+                    mimeType: 'application/json',
+                    text: JSON.stringify({ marcos: await master.getFrames() }, null, 2),
+                },
+            ],
+        }),
+    )
+
     // === Prompts (reusable learning workflows the user picks in their client) ==
     // Each returns guidance messages that point the model at Telar's resources
     // and tools — a one-click way to drive the common Telar tasks well.
@@ -255,10 +279,11 @@ Keep it focused on this concept and its prerequisites.`,
                     content: {
                         type: 'text',
                         text: `Build a complete Telar concept roadmap for "${tema}"${enfoque ? ` (focus: ${enfoque})` : ''}.
-1. First read telar://graph so you don't duplicate concepts that already exist.
+1. Read telar://graph (so you don't duplicate concepts) and telar://frames + telar://layout to see what's already on the canvas and where there's empty space. If unsure where to place the new map, call suggest_frame_region.
 2. Design the map: each concept gets a short 1–2 sentence resumen and, for legibility, a SINGLE primary prerequisite where possible (a few defining concepts may take two).
-3. Create it all in ONE call with build_subgraph (concepts + relations by ref). Reuse existing concept ids where a prerequisite already exists.
-4. Then lay it out left→right by depth with set_positions and label the main clusters as regions with create_sticky.
+3. Create it all in ONE call with build_subgraph, passing \`marco\` as a new frame spec in the empty region (titled "${tema}"): the concepts are auto-placed inside the frame, so the whole roadmap lands tidily in reserved space and reads as self-contained.
+4. Keep relations WITHIN this frame. Only reuse an existing concept id as a prerequisite if the user explicitly wants to connect this new topic to an older one — otherwise let the roadmap stand on its own (this is what stops new maps tangling into old ones).
+5. Optionally refine with set_positions (left→right by depth) and label sub-clusters with create_sticky.
 Keep relations simple so the graph reads as a roadmap, not a web.`,
                     },
                 },
@@ -280,9 +305,9 @@ Keep relations simple so the graph reads as a roadmap, not a web.`,
                     content: {
                         type: 'text',
                         text: `Expand the Telar graph around "${concepto}".
-1. Read telar://graph and telar://concept/{id} to see what already exists and how it connects.
+1. Read telar://graph, telar://concept/{id} and telar://frames to see what already exists, how it connects, and whether the concept sits inside a frame (region).
 2. Propose the missing prerequisites (what you should know before it) and sub-topics (what it leads to), each with a short resumen.
-3. Show me the proposed additions, then create them with build_subgraph (or add_relation for links between existing concepts).
+3. Show me the proposed additions, then create them with build_subgraph (or add_relation for links between existing concepts). If the concept lives inside a frame, pass that frame's id as \`marco\` so the new nodes join the same region, and keep the new relations within it.
 Keep each new concept to one primary prerequisite so the graph stays legible.`,
                     },
                 },
@@ -407,7 +432,7 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
         {
             title: 'Build subgraph (batch)',
             description:
-                'Create many concepts AND wire their relations in ONE call — the fast way to lay down a whole topic map. Each relation references concepts by their `ref` (from this call) or by an existing concept id.',
+                'Create many concepts AND wire their relations in ONE call — the fast way to lay down a whole topic map. Each relation references concepts by their `ref` (from this call) or by an existing concept id. Pass `marco` to drop the whole batch into a frame (region): the created concepts are auto-placed inside it, so a fresh roadmap lands tidily in reserved space instead of piling on top of existing subgraphs — and it reads as self-contained.',
             inputSchema: {
                 concepts: z
                     .array(
@@ -436,9 +461,26 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                         }),
                     )
                     .default([]),
+                marco: z
+                    .union([
+                        z.string().describe('the id of an existing frame to place the batch in'),
+                        z.object({
+                            nombre: z.string().optional().describe('the new frame’s title'),
+                            x: z.number().optional().describe('frame centre x (canvas coords)'),
+                            y: z.number().optional().describe('frame centre y (canvas coords)'),
+                            ancho: z.number().optional().describe('frame width (200–40000)'),
+                            alto: z.number().optional().describe('frame height (200–40000)'),
+                            color: z.string().optional().describe('hex colour or preset name'),
+                        }),
+                    ])
+                    .optional()
+                    .describe(
+                        'optional frame to encapsulate the batch: an existing frame id, or a spec to create one. Created concepts are auto-laid-out inside its rect.',
+                    ),
             },
         },
-        async ({ concepts, relations }) => runTool(() => master.buildSubgraph(concepts, relations)),
+        async ({ concepts, relations, marco }) =>
+            runTool(() => master.buildSubgraph(concepts, relations, marco)),
     )
 
     mcpServer.registerTool(
@@ -719,6 +761,92 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
             annotations: { destructiveHint: true, idempotentHint: true },
         },
         async ({ id }) => runTool(() => master.deleteArrow(id)),
+    )
+
+    // === Tools: frames (regions that encapsulate a subgraph) ================
+
+    mcpServer.registerTool(
+        'create_frame',
+        {
+            title: 'Create frame (region)',
+            description:
+                'Add a frame — a named, bounded region drawn under the needles that encapsulates a subgraph. Place new concepts INSIDE its rect and keep their relations within it, so a topic reads as self-contained instead of wired into everything else. Position (x,y = centre) and size are canvas coordinates (200–40000 px). Tip: for a whole roadmap, prefer build_subgraph with `marco` so the concepts are auto-placed inside.',
+            inputSchema: {
+                nombre: z.string().default('').describe('the frame’s title, shown on its tab'),
+                x: z.number().default(0).describe('canvas x of the frame centre'),
+                y: z.number().default(0).describe('canvas y of the frame centre'),
+                ancho: z.number().default(900).describe('width in px (200–40000)'),
+                alto: z.number().default(600).describe('height in px (200–40000)'),
+                color: z.string().default('#7a2e3a').describe('hex colour or a preset name (sand/moss/sky/rose)'),
+            },
+        },
+        async ({ nombre, x, y, ancho, alto, color }) =>
+            runTool(() => master.createFrame({ nombre, x, y, ancho, alto, color })),
+    )
+
+    mcpServer.registerTool(
+        'update_frame',
+        {
+            title: 'Update frame (region)',
+            description: 'Edit an existing frame (any subset: title, colour, position, size). Membership is derived from position, so moving/resizing a frame re-captures the needles inside it.',
+            inputSchema: {
+                id: z.string().min(1).describe('the frame id, e.g. "f1"'),
+                nombre: z.string().optional(),
+                x: z.number().optional(),
+                y: z.number().optional(),
+                ancho: z.number().optional(),
+                alto: z.number().optional(),
+                color: z.string().optional().describe('hex colour or a preset name'),
+            },
+            annotations: { idempotentHint: true },
+        },
+        async ({ id, ...patch }) => runTool(() => master.updateFrame(id, patch)),
+    )
+
+    mcpServer.registerTool(
+        'delete_frame',
+        {
+            title: 'Delete frame (region)',
+            description:
+                'Remove a frame from the canvas. Idempotent — a no-op if it is already gone. The concepts inside are untouched (membership is derived, not stored).',
+            inputSchema: { id: z.string().min(1).describe('the frame id, e.g. "f1"') },
+            annotations: { destructiveHint: true, idempotentHint: true },
+        },
+        async ({ id }) => runTool(() => master.deleteFrame(id)),
+    )
+
+    mcpServer.registerTool(
+        'suggest_frame_region',
+        {
+            title: 'Suggest an empty region',
+            description:
+                'Return an empty rectangle (canvas coords) beside the existing content, so you can drop a new frame / subgraph there without overlapping what is already on the canvas. Read-only.',
+            inputSchema: {
+                ancho: z.number().default(1400).describe('desired region width (px)'),
+                alto: z.number().default(900).describe('desired region height (px)'),
+            },
+            annotations: { readOnlyHint: true },
+        },
+        async ({ ancho, alto }) =>
+            runTool(async () => {
+                const layout = await master.getLayout()
+                const pts = Object.values(layout)
+                const gap = 400
+                if (pts.length === 0) {
+                    return { nombre: '', x: 0, y: 0, ancho, alto }
+                }
+                // Place the new region to the right of everything drawn so far.
+                const maxX = Math.max(...pts.map((p) => p.x))
+                const ys = pts.map((p) => p.y)
+                const midY = Math.round((Math.min(...ys) + Math.max(...ys)) / 2)
+                return {
+                    nombre: '',
+                    x: Math.round(maxX + gap + ancho / 2),
+                    y: midY,
+                    ancho,
+                    alto,
+                }
+            }),
     )
 
     // === Connect over stdio =================================================

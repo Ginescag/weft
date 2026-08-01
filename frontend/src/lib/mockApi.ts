@@ -6,6 +6,8 @@ import type {
   Flecha,
   Graph,
   GraphNode,
+  Marco,
+  MarcoConMiembros,
   RelationType,
   ResolvedError,
   Sticky,
@@ -39,6 +41,8 @@ interface Overlay {
   stickies: Sticky[]
   /** roadmap arrows (the real backend keeps .telar/arrows.json) */
   arrows: Flecha[]
+  /** canvas frames / regions (the real backend keeps .telar/frames.json) */
+  frames: Marco[]
   /** saved needle positions (the real backend keeps .telar/layout.json) */
   layout: Record<string, { x: number; y: number }>
 }
@@ -61,6 +65,7 @@ function loadOverlay(): Overlay {
           titulo: typeof s.titulo === 'string' ? s.titulo : '',
         })),
         arrows: parsed.arrows ?? [],
+        frames: parsed.frames ?? [],
         layout: parsed.layout ?? {},
       }
     }
@@ -76,6 +81,7 @@ function loadOverlay(): Overlay {
     removedRelations: {},
     stickies: [],
     arrows: [],
+    frames: [],
     layout: {},
   }
 }
@@ -346,6 +352,62 @@ export const mockApi: TelarApi = {
     await wait()
     const overlay = loadOverlay()
     overlay.arrows = overlay.arrows.filter((a) => a.id !== id)
+    saveOverlay(overlay)
+  },
+
+  async getFrames(): Promise<MarcoConMiembros[]> {
+    await wait()
+    const overlay = loadOverlay()
+    // Derive membership by containment (smallest-rect-wins), same as the backend.
+    const rects = overlay.frames.map((m) => ({
+      m,
+      x1: m.x - m.ancho / 2,
+      y1: m.y - m.alto / 2,
+      x2: m.x + m.ancho / 2,
+      y2: m.y + m.alto / 2,
+      area: m.ancho * m.alto,
+      miembros: [] as string[],
+    }))
+    for (const [id, pos] of Object.entries(overlay.layout)) {
+      let best: (typeof rects)[number] | null = null
+      for (const r of rects) {
+        if (pos.x >= r.x1 && pos.x <= r.x2 && pos.y >= r.y1 && pos.y <= r.y2) {
+          if (!best || r.area < best.area) best = r
+        }
+      }
+      if (best) best.miembros.push(id)
+    }
+    return rects.map(({ m, miembros }) => ({ ...m, miembros: miembros.sort() }))
+  },
+
+  async createFrame(data: Omit<Marco, 'id'>): Promise<Marco> {
+    await wait()
+    const overlay = loadOverlay()
+    const used = new Set(overlay.frames.map((m) => m.id))
+    let n = overlay.frames.length + 1
+    let id = `f${n}`
+    while (used.has(id)) id = `f${++n}`
+    const frame: Marco = { ...data, id }
+    overlay.frames = [...overlay.frames, frame]
+    saveOverlay(overlay)
+    return frame
+  },
+
+  async updateFrame(id: string, patch: Partial<Omit<Marco, 'id'>>): Promise<void> {
+    await wait()
+    const overlay = loadOverlay()
+    const i = overlay.frames.findIndex((m) => m.id === id)
+    if (i === -1) throw new Error(`Unknown frame: ${id}`)
+    const next = [...overlay.frames]
+    next[i] = { ...next[i], ...patch, id }
+    overlay.frames = next
+    saveOverlay(overlay)
+  },
+
+  async deleteFrame(id: string): Promise<void> {
+    await wait()
+    const overlay = loadOverlay()
+    overlay.frames = overlay.frames.filter((m) => m.id !== id)
     saveOverlay(overlay)
   },
 

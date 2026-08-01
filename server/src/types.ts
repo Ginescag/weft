@@ -100,6 +100,34 @@ export interface ArrowsFile {
   flechas: Flecha[]
 }
 
+/** A frame ("marco") — a named, bounded region drawn on the graph canvas that
+ *  encapsulates a subgraph. Unlike a sticky (a decorative filled label), a frame
+ *  is a structural container: new concepts are placed inside its rect and the AI
+ *  keeps their relations within it. Position (`x`,`y` = centre) and size are
+ *  graph (model) coordinates; `color` is a hex tint for its border/fill. */
+export interface Marco {
+  id: string
+  nombre: string
+  x: number
+  y: number
+  ancho: number
+  alto: number
+  color: string
+}
+
+/** A frame as returned by the API: the stored `Marco` plus its `miembros` — the
+ *  ids of concepts whose saved position falls inside the frame's rect. Membership
+ *  is DERIVED by containment (never stored), so dragging a needle in/out of a
+ *  frame just works and no concept `.meta` is touched. */
+export interface MarcoConMiembros extends Marco {
+  miembros: string[]
+}
+
+/** .telar/frames.json — frame (region) annotations, real data (not a cache). */
+export interface FramesFile {
+  marcos: Marco[]
+}
+
 /** .telar/layout.json — saved needle positions so the canvas is stable across
  *  loads (a prerequisite for stickies to mark meaningful regions). */
 export interface LayoutFile {

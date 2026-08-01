@@ -19,9 +19,12 @@ import type {
   Flashcard,
   Flecha,
   FlashcardsFile,
+  FramesFile,
   Graph,
   GraphNode,
   LayoutFile,
+  Marco,
+  MarcoConMiembros,
   RelationType,
   ResolvedError,
   StickiesFile,
@@ -112,6 +115,13 @@ const ARROW_MIN_W = 3
 const ARROW_MAX_W = 240
 /** An arrow with no colour given defaults to burgundy — the roadmap thread. */
 const ARROW_DEFAULT_COLOR = '#7a2e3a'
+
+/** Frame (region) size clamps: a frame is bigger than a sticky — it can wrap a
+ *  whole subgraph as a labelled region. Kept in sync with the frontend. */
+const FRAME_MIN = 200
+const FRAME_MAX = 40000
+/** A frame with no colour given defaults to a quiet burgundy tint. */
+const FRAME_DEFAULT_COLOR = '#7a2e3a'
 
 // --- Shared helpers (used across F2–F5) -------------------------------------
 
@@ -242,6 +252,10 @@ function cleanArrowWidth(value: unknown): number {
   return Math.min(ARROW_MAX_W, Math.max(ARROW_MIN_W, cleanNumber(value, 'ancho')))
 }
 
+function cleanFrameSize(value: unknown, name: string): number {
+  return Math.min(FRAME_MAX, Math.max(FRAME_MIN, cleanNumber(value, name)))
+}
+
 /** Normalise a colour to a lowercase 6-digit hex. Accepts a hex string
  *  (#rgb or #rrggbb) or a legacy preset name; 3-digit hex is expanded. */
 function toHex(value: unknown): string | null {
@@ -296,6 +310,111 @@ async function readArrows(masterDir: string): Promise<Flecha[]> {
       color: readColor(f.color),
       ancho: Math.min(ARROW_MAX_W, Math.max(ARROW_MIN_W, Math.round(Number(f.ancho) || 14))),
     }))
+}
+
+/** Read .telar/frames.json tolerantly (missing/empty → no frames). Colours are
+ *  normalised to hex; malformed entries are dropped rather than crashing. */
+async function readFrames(masterDir: string): Promise<Marco[]> {
+  const file = await readJson<FramesFile>(join(masterDir, '.telar', 'frames.json'), { marcos: [] })
+  const list = Array.isArray(file.marcos) ? file.marcos : []
+  return list
+    .filter((m) => m && typeof m.id === 'string')
+    .map((m) => ({
+      id: m.id,
+      nombre: typeof m.nombre === 'string' ? m.nombre : '',
+      x: Number(m.x) || 0,
+      y: Number(m.y) || 0,
+      ancho: Math.min(FRAME_MAX, Math.max(FRAME_MIN, Math.round(Number(m.ancho) || FRAME_MIN))),
+      alto: Math.min(FRAME_MAX, Math.max(FRAME_MIN, Math.round(Number(m.alto) || FRAME_MIN))),
+      color: readColor(m.color),
+    }))
+}
+
+/** The axis-aligned rect of a frame (centre + size → min/max corners + area). */
+function frameRect(m: Marco): { x1: number; y1: number; x2: number; y2: number; area: number } {
+  return {
+    x1: m.x - m.ancho / 2,
+    y1: m.y - m.alto / 2,
+    x2: m.x + m.ancho / 2,
+    y2: m.y + m.alto / 2,
+    area: m.ancho * m.alto,
+  }
+}
+
+/**
+ * Read the frames and attach each one's `miembros` — the concept ids whose saved
+ * position falls inside its rect. Membership is DERIVED by containment (never
+ * stored): a needle belongs to the *smallest* frame that contains it, so nested
+ * / overlapping frames resolve deterministically and no `.meta` is touched.
+ */
+async function framesWithMembers(masterDir: string): Promise<MarcoConMiembros[]> {
+  const frames = await readFrames(masterDir)
+  if (frames.length === 0) return []
+  const layout = await readJson<LayoutFile>(join(masterDir, '.telar', 'layout.json'), {
+    posiciones: {},
+  })
+  const posiciones = layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
+  // Only real concepts can be members — filter out stale layout entries.
+  const concepts = await scanConcepts(masterDir)
+
+  const rects = frames.map((m) => ({ m, r: frameRect(m), miembros: [] as string[] }))
+  for (const [id, pos] of Object.entries(posiciones)) {
+    if (!concepts.has(id) || !pos || typeof pos !== 'object') continue
+    // Smallest-area containing frame wins.
+    let best: (typeof rects)[number] | null = null
+    for (const entry of rects) {
+      const { r } = entry
+      if (pos.x >= r.x1 && pos.x <= r.x2 && pos.y >= r.y1 && pos.y <= r.y2) {
+        if (!best || r.area < best.r.area) best = entry
+      }
+    }
+    if (best) best.miembros.push(id)
+  }
+  return rects.map(({ m, miembros }) => ({ ...m, miembros: miembros.sort() }))
+}
+
+/** Build a fresh Marco (with a new `f…` id) from partial data, given the frames
+ *  that already exist — shared by createFrame and buildSubgraph's frame spec. */
+function newFrame(data: Partial<Omit<Marco, 'id'>>, existing: Marco[]): Marco {
+  const used = new Set(existing.map((m) => m.id))
+  let n = existing.length + 1
+  let id = `f${n}`
+  while (used.has(id)) id = `f${++n}`
+  return {
+    id,
+    nombre: typeof data.nombre === 'string' ? data.nombre : '',
+    x: cleanNumber(data.x ?? 0, 'x'),
+    y: cleanNumber(data.y ?? 0, 'y'),
+    ancho: cleanFrameSize(data.ancho ?? 900, 'ancho'),
+    alto: cleanFrameSize(data.alto ?? 600, 'alto'),
+    color: cleanColor(data.color ?? FRAME_DEFAULT_COLOR),
+  }
+}
+
+/**
+ * Lay out `ids` as an evenly spaced grid inside a frame's rect (with padding),
+ * so a freshly built subgraph lands tidily inside its frame instead of piling at
+ * the origin. Returns id → { x, y } (centre coords, model space).
+ */
+function layoutInRect(ids: string[], m: Marco): Record<string, { x: number; y: number }> {
+  const out: Record<string, { x: number; y: number }> = {}
+  if (ids.length === 0) return out
+  const pad = Math.min(m.ancho, m.alto) * 0.12
+  const innerW = Math.max(1, m.ancho - pad * 2)
+  const innerH = Math.max(1, m.alto - pad * 2)
+  // Bias the column count by the aspect ratio so the grid roughly fills the rect.
+  const cols = Math.max(1, Math.round(Math.sqrt(ids.length * (innerW / innerH))))
+  const rows = Math.max(1, Math.ceil(ids.length / cols))
+  const x0 = m.x - m.ancho / 2 + pad
+  const y0 = m.y - m.alto / 2 + pad
+  const cellW = innerW / cols
+  const cellH = innerH / rows
+  ids.forEach((id, i) => {
+    const c = i % cols
+    const r = Math.floor(i / cols)
+    out[id] = { x: Math.round(x0 + cellW * (c + 0.5)), y: Math.round(y0 + cellH * (r + 0.5)) }
+  })
+  return out
 }
 
 /** Atomic write of a JSON file inside .telar/, creating the folder if needed. */
@@ -481,10 +600,18 @@ export interface NewSubgraphRelation {
   tipo: RelationType
 }
 
-/** What buildSubgraph reports back: the id each new concept got, plus a count. */
+/** Optionally scope a buildSubgraph batch to a frame: either the id of an
+ *  existing frame, or a spec to create a new one. When given, the created
+ *  concepts are auto-laid-out inside the frame's rect (fixes the "new nodes pile
+ *  in the centre" problem — everything lands in the reserved region instead). */
+export type SubgraphFrame = string | Partial<Omit<Marco, 'id'>>
+
+/** What buildSubgraph reports back: the id each new concept got, plus a count.
+ *  `marco` is the id of the frame the batch landed in (if one was requested). */
 export interface BuiltSubgraph {
   created: { ref: string; id: string; nombre: string }[]
   relations: number
+  marco?: string
 }
 
 // --- The Master interface (all the TelarApi + generation operations) --------
@@ -521,8 +648,13 @@ export interface Master {
   addRelation(id: string, relation: { id: string; tipo: RelationType }): Promise<void>
   removeRelation(id: string, target: string): Promise<void>
   /** Batch: create many concepts and wire their relations in a single call
-   *  (one filesystem scan). Relations may reference the new concepts by `ref`. */
-  buildSubgraph(concepts: NewConcept[], relations: NewSubgraphRelation[]): Promise<BuiltSubgraph>
+   *  (one filesystem scan). Relations may reference the new concepts by `ref`.
+   *  With `marco`, the created concepts are placed inside that frame's rect. */
+  buildSubgraph(
+    concepts: NewConcept[],
+    relations: NewSubgraphRelation[],
+    marco?: SubgraphFrame,
+  ): Promise<BuiltSubgraph>
 
   // Canvas state (.telar/): sticky-note annotations + saved needle positions.
   getStickies(): Promise<Sticky[]>
@@ -534,6 +666,11 @@ export interface Master {
   createArrow(data: Partial<Omit<Flecha, 'id'>>): Promise<Flecha>
   updateArrow(id: string, patch: Partial<Omit<Flecha, 'id'>>): Promise<Flecha>
   deleteArrow(id: string): Promise<void>
+  // Frames (regions): named containers; `getFrames` returns derived `miembros`.
+  getFrames(): Promise<MarcoConMiembros[]>
+  createFrame(data: Partial<Omit<Marco, 'id'>>): Promise<Marco>
+  updateFrame(id: string, patch: Partial<Omit<Marco, 'id'>>): Promise<Marco>
+  deleteFrame(id: string): Promise<void>
   getLayout(): Promise<Record<string, { x: number; y: number }>>
   saveLayout(posiciones: Record<string, { x: number; y: number }>): Promise<void>
 
@@ -780,7 +917,7 @@ export function createMaster(dir: string): Master {
     // Create many concepts and wire their relations in one pass. Scans the tree
     // ONCE (createConcept would re-scan per node), assigns unique slugged ids,
     // then applies relations that may point at the just-created concepts by ref.
-    buildSubgraph: async (concepts, relations) => {
+    buildSubgraph: async (concepts, relations, marco) => {
       const index = await scanConcepts(dir)
       const used = new Set(index.keys()) // ids taken (existing + created so far)
 
@@ -860,7 +997,35 @@ export function createMaster(dir: string): Master {
         await writeFileAtomic(join(d, '.meta'), toJson(meta))
       }
 
-      return { created, relations: relCount }
+      // 4) Optional: drop the whole batch into a frame (a reserved region) and
+      //    lay the new concepts out inside it, so they land tidily in that region
+      //    instead of piling at the origin over existing subgraphs.
+      let marcoId: string | undefined
+      if (marco !== undefined) {
+        const frames = await readFrames(dir)
+        let target: Marco
+        if (typeof marco === 'string') {
+          const found = frames.find((m) => m.id === marco)
+          if (!found) throw new BadRequest(`Unknown frame: ${marco}`)
+          target = found
+        } else {
+          target = newFrame(marco, frames)
+          await writeTelarJson(dir, 'frames.json', { marcos: [...frames, target] })
+        }
+        marcoId = target.id
+        const positions = layoutInRect(
+          created.map((c) => c.id),
+          target,
+        )
+        const layout = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), {
+          posiciones: {},
+        })
+        const base =
+          layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
+        await writeTelarJson(dir, 'layout.json', { posiciones: { ...base, ...positions } })
+      }
+
+      return { created, relations: relCount, marco: marcoId }
     },
 
     // --- Canvas state (.telar/) ---------------------------------------------
@@ -963,6 +1128,45 @@ export function createMaster(dir: string): Master {
       const remaining = arrows.filter((a) => a.id !== id)
       if (remaining.length === arrows.length) return // idempotent
       await writeTelarJson(dir, 'arrows.json', { flechas: remaining })
+    },
+
+    // --- Frames (regions) ---------------------------------------------------
+    // A frame is a named container drawn on the canvas — same CRUD shape as a
+    // sticky, in .telar/frames.json. getFrames adds each frame's derived
+    // membership (concept ids whose saved position falls inside its rect).
+    getFrames: () => framesWithMembers(dir),
+
+    createFrame: async (data) => {
+      const frames = await readFrames(dir)
+      const frame = newFrame(data, frames)
+      await writeTelarJson(dir, 'frames.json', { marcos: [...frames, frame] })
+      return frame
+    },
+
+    updateFrame: async (id, patch) => {
+      const frames = await readFrames(dir)
+      const i = frames.findIndex((m) => m.id === id)
+      if (i === -1) throw new NotFound(`Unknown frame: ${id}`)
+      const next: Marco = {
+        ...frames[i],
+        ...(patch.nombre !== undefined ? { nombre: String(patch.nombre) } : {}),
+        ...(patch.x !== undefined ? { x: cleanNumber(patch.x, 'x') } : {}),
+        ...(patch.y !== undefined ? { y: cleanNumber(patch.y, 'y') } : {}),
+        ...(patch.ancho !== undefined ? { ancho: cleanFrameSize(patch.ancho, 'ancho') } : {}),
+        ...(patch.alto !== undefined ? { alto: cleanFrameSize(patch.alto, 'alto') } : {}),
+        ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
+      }
+      const all = [...frames]
+      all[i] = next
+      await writeTelarJson(dir, 'frames.json', { marcos: all })
+      return next
+    },
+
+    deleteFrame: async (id) => {
+      const frames = await readFrames(dir)
+      const remaining = frames.filter((m) => m.id !== id)
+      if (remaining.length === frames.length) return // idempotent
+      await writeTelarJson(dir, 'frames.json', { marcos: remaining })
     },
 
     getLayout: async () => {

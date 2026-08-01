@@ -6,6 +6,8 @@ import type {
   Flecha,
   Graph,
   GraphNode,
+  Marco,
+  MarcoConMiembros,
   RelationType,
   ResolvedError,
   Sticky,
@@ -72,6 +74,15 @@ export interface TelarApi {
   updateArrow(id: string, patch: Partial<Omit<Flecha, 'id'>>): Promise<void>
   /** DELETE /api/arrows/:id. Idempotent. */
   deleteArrow(id: string): Promise<void>
+  /** GET /api/frames — canvas frames (regions), each with its derived `miembros`
+   *  (the concept ids whose saved position falls inside the frame's rect). */
+  getFrames(): Promise<MarcoConMiembros[]>
+  /** POST /api/frames — add a frame, returns it with its id. */
+  createFrame(data: Omit<Marco, 'id'>): Promise<Marco>
+  /** PUT /api/frames/:id — patch a frame (name, color, position, size). */
+  updateFrame(id: string, patch: Partial<Omit<Marco, 'id'>>): Promise<void>
+  /** DELETE /api/frames/:id. Idempotent. */
+  deleteFrame(id: string): Promise<void>
   /** GET /api/layout — saved needle positions (empty on a fresh project). */
   getLayout(): Promise<Record<string, { x: number; y: number }>>
   /** PUT /api/layout — persist the full needle-position map. */

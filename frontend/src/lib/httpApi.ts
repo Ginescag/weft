@@ -6,6 +6,8 @@ import type {
   Flecha,
   Graph,
   GraphNode,
+  Marco,
+  MarcoConMiembros,
   RelationType,
   ResolvedError,
   Sticky,
@@ -115,6 +117,16 @@ export const httpApi: TelarApi = {
   },
 
   deleteArrow: (id) => reqVoid(`/api/arrows/${enc(id)}`, { method: 'DELETE' }),
+
+  getFrames: async () => (await req<{ marcos: MarcoConMiembros[] }>('/api/frames')).marcos,
+
+  createFrame: (data) => req<Marco>('/api/frames', jsonBody('POST', data)),
+
+  updateFrame: async (id, patch) => {
+    await req<Marco>(`/api/frames/${enc(id)}`, jsonBody('PUT', patch))
+  },
+
+  deleteFrame: (id) => reqVoid(`/api/frames/${enc(id)}`, { method: 'DELETE' }),
 
   getLayout: async () =>
     (await req<{ posiciones: Record<string, { x: number; y: number }> }>('/api/layout')).posiciones,

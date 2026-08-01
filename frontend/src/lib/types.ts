@@ -85,6 +85,30 @@ export interface Flecha {
   ancho: number
 }
 
+/** A frame ("marco") — a named, bounded region drawn on the graph canvas that
+ *  encapsulates a subgraph. Unlike a sticky (a decorative filled label), a frame
+ *  is a structural container: new concepts are placed inside its rect and the AI
+ *  keeps their relations within it. Position (`x`,`y` = centre) and size are
+ *  graph (model) coordinates; `color` is a hex tint for its border/fill.
+ *  Stored in .telar/frames.json — real user data, not a derived cache. */
+export interface Marco {
+  id: string
+  nombre: string
+  x: number
+  y: number
+  ancho: number
+  alto: number
+  color: string
+}
+
+/** A frame as read back from the API: the stored `Marco` plus its `miembros` —
+ *  the ids of the concepts whose saved position falls inside the frame's rect.
+ *  Membership is DERIVED by containment (never stored), so dragging a needle in
+ *  or out of a frame just works and no concept `.meta` is touched. */
+export interface MarcoConMiembros extends Marco {
+  miembros: string[]
+}
+
 /** Where a recorded mistake came from (.errorlog `fuente`). */
 export type ErrorSource = 'test' | 'challenge'
 
