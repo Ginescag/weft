@@ -200,12 +200,17 @@ const STYLE: any[] = [
       'background-opacity': 0,
       'border-width': 0,
       label: '',
+      // Both hit-boxes sit in the bottom band (under needles); within it a sticky
+      // out-ranks a frame, so clicking a sticky inside a frame selects the sticky.
       'z-compound-depth': 'bottom',
+      'z-index': 1,
     },
   },
   {
     // A frame's cy node is likewise just an invisible hit-box; the visible
     // region is HTML in the underlay, painted furthest back (under stickies too).
+    // Lowest in the selection hierarchy: needles and stickies always win a tap,
+    // so a frame is only grabbed on genuinely empty space inside it (or its edge).
     selector: 'node.frame',
     style: {
       shape: 'round-rectangle',
@@ -216,6 +221,7 @@ const STYLE: any[] = [
       'border-width': 0,
       label: '',
       'z-compound-depth': 'bottom',
+      'z-index': 0,
     },
   },
   {
