@@ -199,6 +199,27 @@ export function writeFileAtomic(path: string, data: string): Promise<void> {
   return result
 }
 
+// A per-key operation lock. `writeFileAtomic` only serialises the *write*; a
+// read-modify-write (read a canvas file, change one item, write it back) must run
+// under a lock spanning the whole sequence — otherwise N concurrent mutators of
+// the same file (e.g. moving a frame persists all its sticky members at once)
+// each read the pre-change file and the last write wins, silently dropping the
+// others' updates. This chains such sequences per key so none is lost.
+const opLocks = new Map<string, Promise<unknown>>()
+function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = opLocks.get(key) ?? Promise.resolve()
+  const result = prev.then(fn, fn) // run after the previous op, success or failure
+  const tail = result.then(
+    () => {},
+    () => {},
+  )
+  opLocks.set(key, tail)
+  void tail.then(() => {
+    if (opLocks.get(key) === tail) opLocks.delete(key)
+  })
+  return result
+}
+
 /** Pretty-print JSON the way every file on disk is written (BACKEND_PLAN §10). */
 function toJson(value: unknown): string {
   return JSON.stringify(value, null, 2) + '\n'
@@ -692,6 +713,12 @@ export interface Master {
  * always reflected and the derived graph never drifts (BACKEND_PLAN §4.3).
  */
 export function createMaster(dir: string): Master {
+  // Lock keys for the read-modify-write canvas files, so concurrent per-item
+  // mutators (e.g. persisting every sticky towed by a frame move at once) can't
+  // lose each other's updates. See withLock above.
+  const stickiesLock = join(dir, '.telar', 'stickies.json')
+  const arrowsLock = join(dir, '.telar', 'arrows.json')
+  const framesLock = join(dir, '.telar', 'frames.json')
   return {
     dir,
 
@@ -1035,100 +1062,106 @@ export function createMaster(dir: string): Master {
 
     getStickies: () => readStickies(dir),
 
-    createSticky: async (data) => {
-      const stickies = await readStickies(dir)
-      const used = new Set(stickies.map((s) => s.id))
-      let n = stickies.length + 1
-      let id = `s${n}`
-      while (used.has(id)) id = `s${++n}`
-      const sticky: Sticky = {
-        id,
-        titulo: typeof data.titulo === 'string' ? data.titulo : '',
-        texto: typeof data.texto === 'string' ? data.texto : '',
-        color: cleanColor(data.color ?? 'sand'),
-        x: cleanNumber(data.x ?? 0, 'x'),
-        y: cleanNumber(data.y ?? 0, 'y'),
-        ancho: cleanSize(data.ancho ?? 260, 'ancho'),
-        alto: cleanSize(data.alto ?? 170, 'alto'),
-      }
-      await writeTelarJson(dir, 'stickies.json', { stickies: [...stickies, sticky] })
-      return sticky
-    },
+    createSticky: (data) =>
+      withLock(stickiesLock, async () => {
+        const stickies = await readStickies(dir)
+        const used = new Set(stickies.map((s) => s.id))
+        let n = stickies.length + 1
+        let id = `s${n}`
+        while (used.has(id)) id = `s${++n}`
+        const sticky: Sticky = {
+          id,
+          titulo: typeof data.titulo === 'string' ? data.titulo : '',
+          texto: typeof data.texto === 'string' ? data.texto : '',
+          color: cleanColor(data.color ?? 'sand'),
+          x: cleanNumber(data.x ?? 0, 'x'),
+          y: cleanNumber(data.y ?? 0, 'y'),
+          ancho: cleanSize(data.ancho ?? 260, 'ancho'),
+          alto: cleanSize(data.alto ?? 170, 'alto'),
+        }
+        await writeTelarJson(dir, 'stickies.json', { stickies: [...stickies, sticky] })
+        return sticky
+      }),
 
-    updateSticky: async (id, patch) => {
-      const stickies = await readStickies(dir)
-      const i = stickies.findIndex((s) => s.id === id)
-      if (i === -1) throw new NotFound(`Unknown sticky: ${id}`)
-      const next: Sticky = {
-        ...stickies[i],
-        ...(patch.titulo !== undefined ? { titulo: String(patch.titulo) } : {}),
-        ...(patch.texto !== undefined ? { texto: String(patch.texto) } : {}),
-        ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
-        ...(patch.x !== undefined ? { x: cleanNumber(patch.x, 'x') } : {}),
-        ...(patch.y !== undefined ? { y: cleanNumber(patch.y, 'y') } : {}),
-        ...(patch.ancho !== undefined ? { ancho: cleanSize(patch.ancho, 'ancho') } : {}),
-        ...(patch.alto !== undefined ? { alto: cleanSize(patch.alto, 'alto') } : {}),
-      }
-      const all = [...stickies]
-      all[i] = next
-      await writeTelarJson(dir, 'stickies.json', { stickies: all })
-      return next
-    },
+    updateSticky: (id, patch) =>
+      withLock(stickiesLock, async () => {
+        const stickies = await readStickies(dir)
+        const i = stickies.findIndex((s) => s.id === id)
+        if (i === -1) throw new NotFound(`Unknown sticky: ${id}`)
+        const next: Sticky = {
+          ...stickies[i],
+          ...(patch.titulo !== undefined ? { titulo: String(patch.titulo) } : {}),
+          ...(patch.texto !== undefined ? { texto: String(patch.texto) } : {}),
+          ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
+          ...(patch.x !== undefined ? { x: cleanNumber(patch.x, 'x') } : {}),
+          ...(patch.y !== undefined ? { y: cleanNumber(patch.y, 'y') } : {}),
+          ...(patch.ancho !== undefined ? { ancho: cleanSize(patch.ancho, 'ancho') } : {}),
+          ...(patch.alto !== undefined ? { alto: cleanSize(patch.alto, 'alto') } : {}),
+        }
+        const all = [...stickies]
+        all[i] = next
+        await writeTelarJson(dir, 'stickies.json', { stickies: all })
+        return next
+      }),
 
-    deleteSticky: async (id) => {
-      const stickies = await readStickies(dir)
-      const remaining = stickies.filter((s) => s.id !== id)
-      if (remaining.length === stickies.length) return // idempotent
-      await writeTelarJson(dir, 'stickies.json', { stickies: remaining })
-    },
+    deleteSticky: (id) =>
+      withLock(stickiesLock, async () => {
+        const stickies = await readStickies(dir)
+        const remaining = stickies.filter((s) => s.id !== id)
+        if (remaining.length === stickies.length) return // idempotent
+        await writeTelarJson(dir, 'stickies.json', { stickies: remaining })
+      }),
 
     // Roadmap arrows: same shape of CRUD as stickies, in .telar/arrows.json.
     getArrows: () => readArrows(dir),
 
-    createArrow: async (data) => {
-      const arrows = await readArrows(dir)
-      const used = new Set(arrows.map((a) => a.id))
-      let n = arrows.length + 1
-      let id = `a${n}`
-      while (used.has(id)) id = `a${++n}`
-      const arrow: Flecha = {
-        id,
-        x1: cleanNumber(data.x1 ?? 0, 'x1'),
-        y1: cleanNumber(data.y1 ?? 0, 'y1'),
-        x2: cleanNumber(data.x2 ?? 0, 'x2'),
-        y2: cleanNumber(data.y2 ?? 0, 'y2'),
-        color: cleanColor(data.color ?? ARROW_DEFAULT_COLOR),
-        ancho: cleanArrowWidth(data.ancho ?? 14),
-      }
-      await writeTelarJson(dir, 'arrows.json', { flechas: [...arrows, arrow] })
-      return arrow
-    },
+    createArrow: (data) =>
+      withLock(arrowsLock, async () => {
+        const arrows = await readArrows(dir)
+        const used = new Set(arrows.map((a) => a.id))
+        let n = arrows.length + 1
+        let id = `a${n}`
+        while (used.has(id)) id = `a${++n}`
+        const arrow: Flecha = {
+          id,
+          x1: cleanNumber(data.x1 ?? 0, 'x1'),
+          y1: cleanNumber(data.y1 ?? 0, 'y1'),
+          x2: cleanNumber(data.x2 ?? 0, 'x2'),
+          y2: cleanNumber(data.y2 ?? 0, 'y2'),
+          color: cleanColor(data.color ?? ARROW_DEFAULT_COLOR),
+          ancho: cleanArrowWidth(data.ancho ?? 14),
+        }
+        await writeTelarJson(dir, 'arrows.json', { flechas: [...arrows, arrow] })
+        return arrow
+      }),
 
-    updateArrow: async (id, patch) => {
-      const arrows = await readArrows(dir)
-      const i = arrows.findIndex((a) => a.id === id)
-      if (i === -1) throw new NotFound(`Unknown arrow: ${id}`)
-      const next: Flecha = {
-        ...arrows[i],
-        ...(patch.x1 !== undefined ? { x1: cleanNumber(patch.x1, 'x1') } : {}),
-        ...(patch.y1 !== undefined ? { y1: cleanNumber(patch.y1, 'y1') } : {}),
-        ...(patch.x2 !== undefined ? { x2: cleanNumber(patch.x2, 'x2') } : {}),
-        ...(patch.y2 !== undefined ? { y2: cleanNumber(patch.y2, 'y2') } : {}),
-        ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
-        ...(patch.ancho !== undefined ? { ancho: cleanArrowWidth(patch.ancho) } : {}),
-      }
-      const all = [...arrows]
-      all[i] = next
-      await writeTelarJson(dir, 'arrows.json', { flechas: all })
-      return next
-    },
+    updateArrow: (id, patch) =>
+      withLock(arrowsLock, async () => {
+        const arrows = await readArrows(dir)
+        const i = arrows.findIndex((a) => a.id === id)
+        if (i === -1) throw new NotFound(`Unknown arrow: ${id}`)
+        const next: Flecha = {
+          ...arrows[i],
+          ...(patch.x1 !== undefined ? { x1: cleanNumber(patch.x1, 'x1') } : {}),
+          ...(patch.y1 !== undefined ? { y1: cleanNumber(patch.y1, 'y1') } : {}),
+          ...(patch.x2 !== undefined ? { x2: cleanNumber(patch.x2, 'x2') } : {}),
+          ...(patch.y2 !== undefined ? { y2: cleanNumber(patch.y2, 'y2') } : {}),
+          ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
+          ...(patch.ancho !== undefined ? { ancho: cleanArrowWidth(patch.ancho) } : {}),
+        }
+        const all = [...arrows]
+        all[i] = next
+        await writeTelarJson(dir, 'arrows.json', { flechas: all })
+        return next
+      }),
 
-    deleteArrow: async (id) => {
-      const arrows = await readArrows(dir)
-      const remaining = arrows.filter((a) => a.id !== id)
-      if (remaining.length === arrows.length) return // idempotent
-      await writeTelarJson(dir, 'arrows.json', { flechas: remaining })
-    },
+    deleteArrow: (id) =>
+      withLock(arrowsLock, async () => {
+        const arrows = await readArrows(dir)
+        const remaining = arrows.filter((a) => a.id !== id)
+        if (remaining.length === arrows.length) return // idempotent
+        await writeTelarJson(dir, 'arrows.json', { flechas: remaining })
+      }),
 
     // --- Frames (regions) ---------------------------------------------------
     // A frame is a named container drawn on the canvas — same CRUD shape as a
@@ -1136,38 +1169,41 @@ export function createMaster(dir: string): Master {
     // membership (concept ids whose saved position falls inside its rect).
     getFrames: () => framesWithMembers(dir),
 
-    createFrame: async (data) => {
-      const frames = await readFrames(dir)
-      const frame = newFrame(data, frames)
-      await writeTelarJson(dir, 'frames.json', { marcos: [...frames, frame] })
-      return frame
-    },
+    createFrame: (data) =>
+      withLock(framesLock, async () => {
+        const frames = await readFrames(dir)
+        const frame = newFrame(data, frames)
+        await writeTelarJson(dir, 'frames.json', { marcos: [...frames, frame] })
+        return frame
+      }),
 
-    updateFrame: async (id, patch) => {
-      const frames = await readFrames(dir)
-      const i = frames.findIndex((m) => m.id === id)
-      if (i === -1) throw new NotFound(`Unknown frame: ${id}`)
-      const next: Marco = {
-        ...frames[i],
-        ...(patch.nombre !== undefined ? { nombre: String(patch.nombre) } : {}),
-        ...(patch.x !== undefined ? { x: cleanNumber(patch.x, 'x') } : {}),
-        ...(patch.y !== undefined ? { y: cleanNumber(patch.y, 'y') } : {}),
-        ...(patch.ancho !== undefined ? { ancho: cleanFrameSize(patch.ancho, 'ancho') } : {}),
-        ...(patch.alto !== undefined ? { alto: cleanFrameSize(patch.alto, 'alto') } : {}),
-        ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
-      }
-      const all = [...frames]
-      all[i] = next
-      await writeTelarJson(dir, 'frames.json', { marcos: all })
-      return next
-    },
+    updateFrame: (id, patch) =>
+      withLock(framesLock, async () => {
+        const frames = await readFrames(dir)
+        const i = frames.findIndex((m) => m.id === id)
+        if (i === -1) throw new NotFound(`Unknown frame: ${id}`)
+        const next: Marco = {
+          ...frames[i],
+          ...(patch.nombre !== undefined ? { nombre: String(patch.nombre) } : {}),
+          ...(patch.x !== undefined ? { x: cleanNumber(patch.x, 'x') } : {}),
+          ...(patch.y !== undefined ? { y: cleanNumber(patch.y, 'y') } : {}),
+          ...(patch.ancho !== undefined ? { ancho: cleanFrameSize(patch.ancho, 'ancho') } : {}),
+          ...(patch.alto !== undefined ? { alto: cleanFrameSize(patch.alto, 'alto') } : {}),
+          ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
+        }
+        const all = [...frames]
+        all[i] = next
+        await writeTelarJson(dir, 'frames.json', { marcos: all })
+        return next
+      }),
 
-    deleteFrame: async (id) => {
-      const frames = await readFrames(dir)
-      const remaining = frames.filter((m) => m.id !== id)
-      if (remaining.length === frames.length) return // idempotent
-      await writeTelarJson(dir, 'frames.json', { marcos: remaining })
-    },
+    deleteFrame: (id) =>
+      withLock(framesLock, async () => {
+        const frames = await readFrames(dir)
+        const remaining = frames.filter((m) => m.id !== id)
+        if (remaining.length === frames.length) return // idempotent
+        await writeTelarJson(dir, 'frames.json', { marcos: remaining })
+      }),
 
     getLayout: async () => {
       const file = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), {
