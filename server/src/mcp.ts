@@ -656,10 +656,14 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                 y: z.number().default(0).describe('canvas y of the top-left corner'),
                 ancho: z.number().default(260).describe('width in px (100–6000)'),
                 alto: z.number().default(170).describe('height in px (100–6000)'),
+                fijado: z
+                    .boolean()
+                    .default(false)
+                    .describe('pin it in place so a drag over it pans the canvas instead of moving it'),
             },
         },
-        async ({ titulo, texto, color, x, y, ancho, alto }) =>
-            runTool(() => master.createSticky({ titulo, texto, color, x, y, ancho, alto })),
+        async ({ titulo, texto, color, x, y, ancho, alto, fijado }) =>
+            runTool(() => master.createSticky({ titulo, texto, color, x, y, ancho, alto, fijado })),
     )
 
     mcpServer.registerTool(
@@ -676,6 +680,7 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                 y: z.number().optional(),
                 ancho: z.number().optional(),
                 alto: z.number().optional(),
+                fijado: z.boolean().optional().describe('pin (true) or free (false) it on the canvas'),
             },
             annotations: { idempotentHint: true },
         },
@@ -778,10 +783,14 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                 ancho: z.number().default(900).describe('width in px (200–40000)'),
                 alto: z.number().default(600).describe('height in px (200–40000)'),
                 color: z.string().default('#7a2e3a').describe('hex colour or a preset name (sand/moss/sky/rose)'),
+                fijado: z
+                    .boolean()
+                    .default(false)
+                    .describe('pin it in place so a drag over it pans the canvas instead of moving the region'),
             },
         },
-        async ({ nombre, x, y, ancho, alto, color }) =>
-            runTool(() => master.createFrame({ nombre, x, y, ancho, alto, color })),
+        async ({ nombre, x, y, ancho, alto, color, fijado }) =>
+            runTool(() => master.createFrame({ nombre, x, y, ancho, alto, color, fijado })),
     )
 
     mcpServer.registerTool(
@@ -797,6 +806,7 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                 ancho: z.number().optional(),
                 alto: z.number().optional(),
                 color: z.string().optional().describe('hex colour or a preset name'),
+                fijado: z.boolean().optional().describe('pin (true) or free (false) the region on the canvas'),
             },
             annotations: { idempotentHint: true },
         },

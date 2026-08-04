@@ -75,6 +75,9 @@ export interface Sticky {
   y: number
   ancho: number
   alto: number
+  /** Pinned: locked in place on the canvas — it can't be dragged and a drag over
+   *  it pans the viewport instead. Absent/false means free to move. */
+  fijado?: boolean
 }
 
 /** .telar/stickies.json — user annotations, real data (not a derived cache). */
@@ -113,6 +116,9 @@ export interface Marco {
   ancho: number
   alto: number
   color: string
+  /** Pinned: locked in place on the canvas — it can't be dragged (nor tows its
+   *  contents) and a drag over it pans the viewport. Absent/false means free. */
+  fijado?: boolean
 }
 
 /** A frame as returned by the API: the stored `Marco` plus its `miembros` — the

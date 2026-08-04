@@ -70,6 +70,9 @@ export interface Sticky {
   y: number
   ancho: number
   alto: number
+  /** Pinned: locked in place on the canvas — it can't be dragged and a drag over
+   *  it pans the viewport instead. Absent/false means free to move. */
+  fijado?: boolean
 }
 
 /** A free-floating "roadmap" arrow drawn on the graph canvas — a canvas
@@ -99,6 +102,9 @@ export interface Marco {
   ancho: number
   alto: number
   color: string
+  /** Pinned: locked in place on the canvas — it can't be dragged (nor tows its
+   *  contents) and a drag over it pans the viewport. Absent/false means free. */
+  fijado?: boolean
 }
 
 /** A frame as read back from the API: the stored `Marco` plus its `miembros` —

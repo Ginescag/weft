@@ -20,6 +20,7 @@ import {
   Minus,
   NoteBlank,
   Plus,
+  PushPin,
   Scissors,
 } from '@phosphor-icons/react'
 import { api } from '../lib/api'
@@ -326,9 +327,19 @@ const STYLE: any[] = [
   },
 ]
 
-/** One-time load animation: threads draw in as if pulled taut. */
+/** One-time load animation: threads draw in as if pulled taut. The whole weave
+ *  is bounded to a fixed budget, so a large roadmap doesn't take ~9s to finish:
+ *  the per-thread stagger shrinks as the graph grows (on a dense weave the
+ *  threads tighten almost simultaneously) and the tighten itself is a touch
+ *  quicker when dense. A small graph keeps the original leisurely feel. */
 function tightenThreads(cy: cytoscape.Core) {
-  cy.edges().forEach((edge, i) => {
+  const edges = cy.edges()
+  const n = edges.length
+  const START = 120
+  const BUDGET = 1100 // the whole weave should finish within ~1.1s regardless of size
+  const stagger = Math.min(90, (BUDGET - START) / Math.max(n, 1))
+  const dur = n > 120 ? 420 : 650
+  edges.forEach((edge, i) => {
     const from = edge.sourceEndpoint()
     const to = edge.targetEndpoint()
     const length = Math.hypot(to.x - from.x, to.y - from.y) || 1
@@ -342,10 +353,10 @@ function tightenThreads(cy: cytoscape.Core) {
       'line-opacity': finalOpacity,
     })
 
-    edge.delay(150 + i * 90).animate(
+    edge.delay(START + i * stagger).animate(
       { style: { 'line-dash-offset': 0 } },
       {
-        duration: 650,
+        duration: dur,
         easing: 'ease-out-cubic',
         complete: () => {
           // Restore the resting style of each thread type.
@@ -590,11 +601,16 @@ export default function NeedleGraph({
   } | null>(null)
   const underlayRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<HTMLDivElement>(null)
-  // The corner grip resizes a sticky OR a frame; the target carries which.
+  // The corner grip resizes a sticky OR a frame; the target carries which. The
+  // same hover target also drives the pin toggle at the top-right corner.
   type ResizeTarget = { kind: 'sticky' | 'frame'; id: string }
   const [resizeTarget, setResizeTarget] = useState<ResizeTarget | null>(null)
   const resizeTargetRef = useRef<ResizeTarget | null>(null)
   const overHandleRef = useRef(false)
+  // The pin toggle shares the grip's hover lifecycle; either control staying
+  // hovered keeps the pair alive.
+  const pinRef = useRef<HTMLButtonElement>(null)
+  const overPinRef = useRef(false)
   const hideHandleTimer = useRef<number | undefined>(undefined)
   const resizingRef = useRef<{
     id: string
@@ -637,6 +653,55 @@ export default function NeedleGraph({
     el.style.top = `${p.y + ((node.data('alto') as number) / 2) * zoom}px`
   }
 
+  /** Pin the pin-toggle button to the top-right corner of its sticky/frame. */
+  const syncPinButton = () => {
+    const cy = cyRef.current
+    const el = pinRef.current
+    const t = resizeTargetRef.current
+    if (!cy || cy.destroyed() || !el || !t) return
+    const node = cy.getElementById(resizeCyId(t))
+    if (node.empty()) return
+    const zoom = cy.zoom()
+    const p = (node as cytoscape.NodeSingular).renderedPosition()
+    el.style.left = `${p.x + ((node.data('ancho') as number) / 2) * zoom}px`
+    el.style.top = `${p.y - ((node.data('alto') as number) / 2) * zoom}px`
+  }
+
+  /** Lock (or free) a sticky/frame on the canvas: a pinned hit-box can't be
+   *  dragged (`ungrabify`) and a drag over it pans the viewport (`panify`, since
+   *  nodes are un-pannable by default) — which is exactly what stops a pan from
+   *  towing the frame. Unpinning restores the defaults. */
+  const setPinned = (kind: 'sticky' | 'frame', id: string, pinned: boolean) => {
+    const cy = cyRef.current
+    if (!cy || cy.destroyed()) return
+    const node = cy.getElementById(kind === 'sticky' ? stickyCyId(id) : frameCyId(id))
+    if (node.empty()) return
+    // panify/unpannify exist at runtime but aren't in the cytoscape typings.
+    const n = node as unknown as cytoscape.NodeSingular & { panify: () => void; unpannify: () => void }
+    if (pinned) {
+      n.ungrabify()
+      n.panify()
+    } else {
+      n.grabify()
+      n.unpannify()
+    }
+  }
+
+  /** Flip a sticky/frame's pinned state, persisting it. */
+  const togglePin = (t: ResizeTarget) => {
+    const list = t.kind === 'sticky' ? stickyListRef.current : frameListRef.current
+    const current = list.find((e) => e.id === t.id)
+    const next = !(current?.fijado ?? false)
+    setPinned(t.kind, t.id, next)
+    if (t.kind === 'sticky') {
+      patchSticky(t.id, { fijado: next })
+      void api.updateSticky(t.id, { fijado: next }).catch(() => {})
+    } else {
+      patchFrame(t.id, { fijado: next })
+      void api.updateFrame(t.id, { fijado: next }).catch(() => {})
+    }
+  }
+
   /** Pin each arrow's drag handles (endpoints + midpoint mover) in screen px,
    *  computed from its model endpoints via the cy pan/zoom transform. */
   const syncArrows = () => {
@@ -665,6 +730,7 @@ export default function NeedleGraph({
     const pan = cy.pan()
     el.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${cy.zoom()})`
     syncResizeHandle()
+    syncPinButton()
     syncArrows()
   }
 
@@ -674,11 +740,12 @@ export default function NeedleGraph({
     setResizeTarget(target)
   }
 
-  /** Hide the grip shortly after the pointer leaves sticky and grip alike. */
+  /** Hide the grip + pin shortly after the pointer leaves the sticky/frame and
+   *  both of its floating controls. */
   const hideResizeHandleSoon = () => {
     window.clearTimeout(hideHandleTimer.current)
     hideHandleTimer.current = window.setTimeout(() => {
-      if (resizingRef.current || overHandleRef.current) return
+      if (resizingRef.current || overHandleRef.current || overPinRef.current) return
       resizeTargetRef.current = null
       setResizeTarget(null)
     }, 250)
@@ -725,6 +792,7 @@ export default function NeedleGraph({
     if (r.kind === 'sticky') patchSticky(r.id, { ancho, alto, x, y })
     else patchFrame(r.id, { ancho, alto, x, y })
     syncResizeHandle()
+    syncPinButton()
   }
 
   const endResize = () => {
@@ -1183,6 +1251,11 @@ export default function NeedleGraph({
     })
     cyRef.current = cy
 
+    // Lock the seeded stickies/frames that were saved pinned: ungrabbable + a
+    // drag over them pans instead of towing them (see setPinned).
+    for (const s of initialStickies.current) if (s.fijado) setPinned('sticky', s.id, true)
+    for (const m of initialFrames.current) if (m.fijado) setPinned('frame', m.id, true)
+
     // First load ever: weave the initial layout with fcose (needles + threads
     // only), then remember it so every later load is stable. With a saved
     // layout, only needles that appeared since the last save need a spot.
@@ -1224,6 +1297,7 @@ export default function NeedleGraph({
         div.style.top = `${p.y - (node.data('alto') as number) / 2}px`
       }
       syncResizeHandle()
+      syncPinButton()
     })
     cy.on('position', 'node.frame', (event) => {
       const node = event.target as cytoscape.NodeSingular
@@ -1234,6 +1308,7 @@ export default function NeedleGraph({
         div.style.top = `${p.y - (node.data('alto') as number) / 2}px`
       }
       syncResizeHandle()
+      syncPinButton()
     })
 
     // Moving a frame tows everything inside it. Capture the members (needles +
@@ -1251,6 +1326,8 @@ export default function NeedleGraph({
       const members = cy
         .nodes('[!frame]')
         .filter((n) => {
+          // A pinned sticky (ungrabbable) stays put — the frame tows the rest.
+          if (!(n as cytoscape.NodeSingular).grabbable()) return false
           const q = (n as cytoscape.NodeSingular).position()
           return q.x >= x1 && q.x <= x2 && q.y >= y1 && q.y <= y2
         })
@@ -1539,6 +1616,14 @@ export default function NeedleGraph({
     syncUnderlay()
   })
 
+  // Is the hovered sticky/frame pinned? Drives the pin toggle's look and hides
+  // the resize grip (pinned = fully locked in place & size).
+  const targetPinned =
+    resizeTarget != null &&
+    (resizeTarget.kind === 'sticky'
+      ? stickyList.find((s) => s.id === resizeTarget.id)?.fijado
+      : frameList.find((m) => m.id === resizeTarget.id)?.fijado) === true
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       {/* Sticky underlay: the visible notes, glued to the cy viewport but
@@ -1614,8 +1699,9 @@ export default function NeedleGraph({
         </div>
       )}
 
-      {/* Corner grip: appears while hovering a sticky; dragging it resizes. */}
-      {resizeTarget && (
+      {/* Corner grip: appears while hovering a sticky/frame; dragging it resizes.
+          Hidden while the target is pinned — pinned is fully locked. */}
+      {resizeTarget && !targetPinned && (
         <div
           ref={handleRef}
           role="button"
@@ -1635,6 +1721,36 @@ export default function NeedleGraph({
           className="absolute z-10 h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize rounded border border-burgundy/70 bg-linen-bright"
           style={{ touchAction: 'none' }}
         />
+      )}
+
+      {/* Pin toggle: appears (top-right) while hovering a sticky/frame. Pinning
+          locks it in place — a drag over it then pans the canvas instead of
+          moving it. Filled while pinned. */}
+      {resizeTarget && (
+        <button
+          ref={pinRef}
+          type="button"
+          aria-label={targetPinned ? 'Unpin from the canvas' : 'Pin in place'}
+          aria-pressed={targetPinned}
+          title={targetPinned ? 'Pinned — click to unpin' : 'Pin in place'}
+          onClick={() => resizeTargetRef.current && togglePin(resizeTargetRef.current)}
+          onPointerEnter={() => {
+            overPinRef.current = true
+            window.clearTimeout(hideHandleTimer.current)
+          }}
+          onPointerLeave={() => {
+            overPinRef.current = false
+            hideResizeHandleSoon()
+          }}
+          className={`absolute z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-colors ${
+            targetPinned
+              ? 'border-burgundy bg-burgundy text-linen-bright'
+              : 'border-hairline bg-linen-bright text-muted hover:text-ink'
+          }`}
+          style={{ touchAction: 'none' }}
+        >
+          <PushPin size={13} weight={targetPinned ? 'fill' : 'bold'} aria-hidden />
+        </button>
       )}
 
       {/* Roadmap-arrow handles (screen-space, above the canvas): the two endpoints
@@ -1979,6 +2095,21 @@ function StickyNote({
       >
         {sticky.texto}
       </div>
+      {sticky.fijado && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: Math.round(fonts.title * 0.28),
+            right: Math.round(fonts.title * 0.28),
+            color: '#2a2420',
+            opacity: 0.5,
+            lineHeight: 0,
+          }}
+        >
+          <PushPin size={Math.round(fonts.title * 0.9)} weight="fill" />
+        </div>
+      )}
     </div>
   )
 }
@@ -2035,6 +2166,21 @@ function FrameRegion({
           }}
         >
           {frame.nombre}
+        </div>
+      )}
+      {frame.fijado && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: Math.round(title * 0.3),
+            right: Math.round(title * 0.42),
+            color: ink,
+            opacity: 0.6,
+            lineHeight: 0,
+          }}
+        >
+          <PushPin size={Math.round(title * 0.7)} weight="fill" />
         </div>
       )}
     </div>

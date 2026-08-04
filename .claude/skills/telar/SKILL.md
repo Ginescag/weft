@@ -48,7 +48,10 @@ Read resources before writing so you don't duplicate or mislink:
 4. **Arrange the canvas** — `create_frame` (or `suggest_frame_region` → a free rect)
    reserves a **region** for a subgraph; `set_positions` merges needle x/y into the
    layout (omit a needle to leave it put); `create_sticky` labels a cluster;
-   `create_arrow` draws a free roadmap arrow between regions.
+   `create_arrow` draws a free roadmap arrow between regions. A sticky or frame can
+   be **pinned** (`fijado: true` on create/update) to lock it in place — a drag over
+   a pinned item pans the canvas instead of moving it; pin a finished roadmap frame
+   so the user can't nudge it while panning.
 5. **Review** — read `telar://errors` and re-quiz the weak concepts.
 
 ## Frames: keep a topic self-contained

@@ -312,6 +312,7 @@ async function readStickies(masterDir: string): Promise<Sticky[]> {
     ...s,
     titulo: typeof s.titulo === 'string' ? s.titulo : '',
     color: readColor(s.color),
+    fijado: s.fijado === true,
   }))
 }
 
@@ -348,6 +349,7 @@ async function readFrames(masterDir: string): Promise<Marco[]> {
       ancho: Math.min(FRAME_MAX, Math.max(FRAME_MIN, Math.round(Number(m.ancho) || FRAME_MIN))),
       alto: Math.min(FRAME_MAX, Math.max(FRAME_MIN, Math.round(Number(m.alto) || FRAME_MIN))),
       color: readColor(m.color),
+      fijado: m.fijado === true,
     }))
 }
 
@@ -409,6 +411,7 @@ function newFrame(data: Partial<Omit<Marco, 'id'>>, existing: Marco[]): Marco {
     ancho: cleanFrameSize(data.ancho ?? 900, 'ancho'),
     alto: cleanFrameSize(data.alto ?? 600, 'alto'),
     color: cleanColor(data.color ?? FRAME_DEFAULT_COLOR),
+    fijado: data.fijado === true,
   }
 }
 
@@ -1078,6 +1081,7 @@ export function createMaster(dir: string): Master {
           y: cleanNumber(data.y ?? 0, 'y'),
           ancho: cleanSize(data.ancho ?? 260, 'ancho'),
           alto: cleanSize(data.alto ?? 170, 'alto'),
+          fijado: data.fijado === true,
         }
         await writeTelarJson(dir, 'stickies.json', { stickies: [...stickies, sticky] })
         return sticky
@@ -1097,6 +1101,7 @@ export function createMaster(dir: string): Master {
           ...(patch.y !== undefined ? { y: cleanNumber(patch.y, 'y') } : {}),
           ...(patch.ancho !== undefined ? { ancho: cleanSize(patch.ancho, 'ancho') } : {}),
           ...(patch.alto !== undefined ? { alto: cleanSize(patch.alto, 'alto') } : {}),
+          ...(patch.fijado !== undefined ? { fijado: patch.fijado === true } : {}),
         }
         const all = [...stickies]
         all[i] = next
@@ -1190,6 +1195,7 @@ export function createMaster(dir: string): Master {
           ...(patch.ancho !== undefined ? { ancho: cleanFrameSize(patch.ancho, 'ancho') } : {}),
           ...(patch.alto !== undefined ? { alto: cleanFrameSize(patch.alto, 'alto') } : {}),
           ...(patch.color !== undefined ? { color: cleanColor(patch.color) } : {}),
+          ...(patch.fijado !== undefined ? { fijado: patch.fijado === true } : {}),
         }
         const all = [...frames]
         all[i] = next
