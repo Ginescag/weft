@@ -19,14 +19,14 @@ async function runTool(fn: () => Promise<unknown>) {
 
 export async function startMCPServer(masterDir: string): Promise<void> {
     const master = createMaster(masterDir)
-    const mcpServer = new McpServer({ name: 'telar', version: '1.0.0' })
+    const mcpServer = new McpServer({ name: 'weft', version: '1.0.0' })
 
     mcpServer.registerResource(
         'graph',
-        'telar://graph',
+        'weft://graph',
         {
             title: 'Get the graph of concepts',
-            description: 'Returns every concept (node) and relation (edge) in the Telar project graph.',
+            description: 'Returns every concept (node) and relation (edge) in the Weft project graph.',
             mimeType: 'application/json',
         },
         async (uri) => ({
@@ -43,7 +43,7 @@ export async function startMCPServer(masterDir: string): Promise<void> {
 
     mcpServer.registerResource(
         'concept',
-        new ResourceTemplate('telar://concept/{id}', { list: undefined }),
+        new ResourceTemplate('weft://concept/{id}', { list: undefined }),
         {
             title: 'Concept detail',
             description: 'A concept’s name and the lessons/examples/challenges/notes it holds.',
@@ -63,7 +63,7 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // The markdown body of one content file (a lesson, example, note, challenge).
     mcpServer.registerResource(
         'file',
-        new ResourceTemplate('telar://concept/{id}/{folder}/{file}', { list: undefined }),
+        new ResourceTemplate('weft://concept/{id}/{folder}/{file}', { list: undefined }),
         {
             title: 'Content file',
             description: 'The markdown of a single lesson/example/note/challenge.',
@@ -83,7 +83,7 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // The concept's recorded mistakes (.errorlog), raw — for targeted review.
     mcpServer.registerResource(
         'errorlog',
-        new ResourceTemplate('telar://concept/{id}/errorlog', { list: undefined }),
+        new ResourceTemplate('weft://concept/{id}/errorlog', { list: undefined }),
         {
             title: 'Concept error log',
             description: 'The mistakes recorded for one concept (.errorlog): fuente, itemId, fecha, nota.',
@@ -105,7 +105,7 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // challenges) — the feed for "review my mistakes".
     mcpServer.registerResource(
         'errors',
-        'telar://errors',
+        'weft://errors',
         {
             title: 'All recorded mistakes',
             description:
@@ -127,10 +127,10 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // what's on the canvas before moving or relabelling regions.
     mcpServer.registerResource(
         'stickies',
-        'telar://stickies',
+        'weft://stickies',
         {
             title: 'Canvas sticky notes',
-            description: 'The region sticky-note annotations on the graph canvas (.telar/stickies.json).',
+            description: 'The region sticky-note annotations on the graph canvas (.weft/stickies.json).',
             mimeType: 'application/json',
         },
         async (uri) => ({
@@ -148,10 +148,10 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // set_positions call can merge instead of guessing coordinates.
     mcpServer.registerResource(
         'layout',
-        'telar://layout',
+        'weft://layout',
         {
             title: 'Saved needle positions',
-            description: 'The saved { x, y } canvas position of each needle (.telar/layout.json).',
+            description: 'The saved { x, y } canvas position of each needle (.weft/layout.json).',
             mimeType: 'application/json',
         },
         async (uri) => ({
@@ -168,10 +168,10 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // Roadmap arrows drawn on the canvas (free annotations, not relations).
     mcpServer.registerResource(
         'arrows',
-        'telar://arrows',
+        'weft://arrows',
         {
             title: 'Canvas roadmap arrows',
-            description: 'The free-floating roadmap arrows drawn on the graph canvas (.telar/arrows.json).',
+            description: 'The free-floating roadmap arrows drawn on the graph canvas (.weft/arrows.json).',
             mimeType: 'application/json',
         },
         async (uri) => ({
@@ -191,11 +191,11 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     // region and keep its relations within the frame.
     mcpServer.registerResource(
         'frames',
-        'telar://frames',
+        'weft://frames',
         {
             title: 'Canvas frames (regions)',
             description:
-                'The frames (regions) on the graph canvas (.telar/frames.json), each with its derived members (concept ids inside it). Use frames to keep a subgraph self-contained.',
+                'The frames (regions) on the graph canvas (.weft/frames.json), each with its derived members (concept ids inside it). Use frames to keep a subgraph self-contained.',
             mimeType: 'application/json',
         },
         async (uri) => ({
@@ -210,8 +210,8 @@ export async function startMCPServer(masterDir: string): Promise<void> {
     )
 
     // === Prompts (reusable learning workflows the user picks in their client) ==
-    // Each returns guidance messages that point the model at Telar's resources
-    // and tools — a one-click way to drive the common Telar tasks well.
+    // Each returns guidance messages that point the model at Weft's resources
+    // and tools — a one-click way to drive the common Weft tasks well.
 
     mcpServer.registerPrompt(
         'teach_concept',
@@ -226,9 +226,9 @@ export async function startMCPServer(masterDir: string): Promise<void> {
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `Teach me the Telar concept "${concepto}".
-1. If "${concepto}" is a name, read telar://graph to find its id.
-2. Read telar://concept/{id} for its lessons/examples, then read those files (telar://concept/{id}/lessons/{file}).
+                        text: `Teach me the Weft concept "${concepto}".
+1. If "${concepto}" is a name, read weft://graph to find its id.
+2. Read weft://concept/{id} for its lessons/examples, then read those files (weft://concept/{id}/lessons/{file}).
 3. Teach it clearly and progressively, grounded in that material and its prerequisites (the concept's relaciones).
 4. Finish by checking my understanding with 2–3 quick questions.
 If the concept has little or no material, offer to write a lesson with create_lesson (or run the fill_concept prompt).`,
@@ -251,8 +251,8 @@ If the concept has little or no material, offer to write a lesson with create_le
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `Quiz me on the Telar concept "${concepto}".
-1. Resolve its id via telar://graph if needed and read telar://concept/{id} plus its lesson files for grounding.
+                        text: `Quiz me on the Weft concept "${concepto}".
+1. Resolve its id via weft://graph if needed and read weft://concept/{id} plus its lesson files for grounding.
 2. Ask me 5 questions one at a time, wait for each answer, then tell me if I was right and why.
 3. Offer to save the good questions to the concept with add_questions so they persist.
 Keep it focused on this concept and its prerequisites.`,
@@ -278,8 +278,8 @@ Keep it focused on this concept and its prerequisites.`,
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `Build a complete Telar concept roadmap for "${tema}"${enfoque ? ` (focus: ${enfoque})` : ''}.
-1. Read telar://graph (so you don't duplicate concepts) and telar://frames + telar://layout to see what's already on the canvas and where there's empty space. If unsure where to place the new map, call suggest_frame_region.
+                        text: `Build a complete Weft concept roadmap for "${tema}"${enfoque ? ` (focus: ${enfoque})` : ''}.
+1. Read weft://graph (so you don't duplicate concepts) and weft://frames + weft://layout to see what's already on the canvas and where there's empty space. If unsure where to place the new map, call suggest_frame_region.
 2. Design the map: each concept gets a short 1–2 sentence resumen and, for legibility, a SINGLE primary prerequisite where possible (a few defining concepts may take two).
 3. Create it all in ONE call with build_subgraph, passing \`marco\` as a new frame spec in the empty region (titled "${tema}"): the concepts are auto-placed inside the frame, so the whole roadmap lands tidily in reserved space and reads as self-contained.
 4. Keep relations WITHIN this frame. Only reuse an existing concept id as a prerequisite if the user explicitly wants to connect this new topic to an older one — otherwise let the roadmap stand on its own (this is what stops new maps tangling into old ones).
@@ -304,8 +304,8 @@ Keep relations simple so the graph reads as a roadmap, not a web.`,
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `Expand the Telar graph around "${concepto}".
-1. Read telar://graph, telar://concept/{id} and telar://frames to see what already exists, how it connects, and whether the concept sits inside a frame (region).
+                        text: `Expand the Weft graph around "${concepto}".
+1. Read weft://graph, weft://concept/{id} and weft://frames to see what already exists, how it connects, and whether the concept sits inside a frame (region).
 2. Propose the missing prerequisites (what you should know before it) and sub-topics (what it leads to), each with a short resumen.
 3. Show me the proposed additions, then create them with build_subgraph (or add_relation for links between existing concepts). If the concept lives inside a frame, pass that frame's id as \`marco\` so the new nodes join the same region, and keep the new relations within it.
 Keep each new concept to one primary prerequisite so the graph stays legible.`,
@@ -328,8 +328,8 @@ Keep each new concept to one primary prerequisite so the graph stays legible.`,
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `Write study material for the Telar concept "${concepto}".
-1. Resolve its id via telar://graph and read telar://concept/{id} to see what's already there (don't duplicate).
+                        text: `Write study material for the Weft concept "${concepto}".
+1. Resolve its id via weft://graph and read weft://concept/{id} to see what's already there (don't duplicate).
 2. Draft, and save each with its tool:
    - a clear lesson in markdown → create_lesson
    - one worked example → create_example
@@ -353,8 +353,8 @@ Ground everything in the concept and its prerequisites; keep it accurate and con
                     role: 'user',
                     content: {
                         type: 'text',
-                        text: `Help me review my Telar mistakes.
-1. Read telar://errors (every recorded miss, newest first, with the solution that was given).
+                        text: `Help me review my Weft mistakes.
+1. Read weft://errors (every recorded miss, newest first, with the solution that was given).
 2. Group them by concept and, for each, restate the correct answer and why briefly.
 3. Then re-quiz me on the concepts I most often get wrong, one question at a time.
 If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_concept on it.`,
@@ -862,5 +862,5 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
     // === Connect over stdio =================================================
     const transport = new StdioServerTransport()
     await mcpServer.connect(transport)
-    console.error(`telar mcp → serving ${masterDir} over stdio`) // stderr, not stdout!
+    console.error(`weft mcp → serving ${masterDir} over stdio`) // stderr, not stdout!
 }

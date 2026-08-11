@@ -26,11 +26,11 @@ import { runInteractiveMenu } from './menu.js'
 import { startMCPServer } from './mcp.js'
 
 interface CliOptions {
-  /** `menu` = bare `telar` (interactive picker); `serve` = start directly.
+  /** `menu` = bare `weft` (interactive picker); `serve` = start directly.
    *  `close` is an alias for `stop`. */
   command: 'menu' | 'serve' | 'path' | 'help' | 'mcp' | 'stop' | 'close' | 'skill'
   port: number
-  /** serve: explicit master from --master/positional/$TELAR_MASTER (one-off, not saved). */
+  /** serve: explicit master from --master/positional/$WEFT_MASTER (one-off, not saved). */
   explicitMaster?: string
   /** path: the new location to set; undefined ⇒ just show the current one. */
   pathArg?: string
@@ -43,7 +43,7 @@ const COMMANDS = new Set(['serve', 'path', 'help', 'mcp', 'stop', 'close', 'skil
 /**
  * Does this bare positional look like a filesystem path (so it may be a one-off
  * master), rather than a mistyped subcommand? A path has a separator, a Windows
- * drive, or starts with `.`/`~`. This stops `telar close` (or any typo) from
+ * drive, or starts with `.`/`~`. This stops `weft close` (or any typo) from
  * being silently treated as a master directory and starting a server.
  */
 function looksLikePath(token: string): boolean {
@@ -76,7 +76,7 @@ function parseArgs(argv: string[]): CliOptions {
     throw new Error(`Invalid --port: ${port}`)
   }
 
-  // Bare `telar` defaults to the interactive menu; an explicit subcommand or a
+  // Bare `weft` defaults to the interactive menu; an explicit subcommand or a
   // positional master path serves directly.
   let command: CliOptions['command'] = 'menu'
   let pathArg: string | undefined
@@ -88,31 +88,31 @@ function parseArgs(argv: string[]): CliOptions {
     if (command === 'skill') skillArg = rest[1]
   } else if (rest[0]) {
     // A bare positional is a one-off master path — but only if it looks like a
-    // path. Otherwise it is a mistyped command (`telar close`, `telar srve`),
+    // path. Otherwise it is a mistyped command (`weft close`, `weft srve`),
     // which must error, not silently serve a nonexistent directory.
     if (!masterArg && !looksLikePath(rest[0])) {
-      throw new Error(`Unknown command: ${rest[0]}. Run \`telar help\` to see the commands.`)
+      throw new Error(`Unknown command: ${rest[0]}. Run \`weft help\` to see the commands.`)
     }
     masterArg = masterArg ?? rest[0]
     command = 'serve'
   }
   if (help) command = 'help'
 
-  return { command, port, explicitMaster: masterArg ?? process.env.TELAR_MASTER, pathArg, skillArg }
+  return { command, port, explicitMaster: masterArg ?? process.env.WEFT_MASTER, pathArg, skillArg }
 }
 
 function printHelp(): void {
-  console.log(`telar — local-first learning dashboard
+  console.log(`weft — local-first learning dashboard
 
 Usage:
-  telar                Open the interactive menu (start · move the project · quit)
-  telar serve          Start Telar directly (skips the menu)
-  telar stop           Stop a running Telar server (frees the port); alias: telar close
-  telar path           Show where your project folder (TELAR-MASTER) lives
-  telar path <dir>     Point Telar at <dir>/TELAR-MASTER (created empty if missing)
-  telar skill install  Install the Telar skill into ~/.claude/skills (for Claude Code)
-  telar help           Show this help
-  telar mcp            Start the MCP server (for external tools to talk to Telar)
+  weft                Open the interactive menu (start · move the project · quit)
+  weft serve          Start Weft directly (skips the menu)
+  weft stop           Stop a running Weft server (frees the port); alias: weft close
+  weft path           Show where your project folder (WEFT-MASTER) lives
+  weft path <dir>     Point Weft at <dir>/WEFT-MASTER (created empty if missing)
+  weft skill install  Install the Weft skill into ~/.claude/skills (for Claude Code)
+  weft help           Show this help
+  weft mcp            Start the MCP server (for external tools to talk to Weft)
 
 Options (serve):
   --port <n>           Port to listen on (default 3131)
@@ -124,29 +124,29 @@ function frontendDist(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/dist')
 }
 
-/** The Telar skill that ships in the package's `.claude/skills/telar/`. Same
+/** The Weft skill that ships in the package's `.claude/skills/weft/`. Same
  *  `../../` package-root anchor as frontendDist (works from src and dist). */
 function skillSourceDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '../../.claude/skills/telar')
+  return resolve(dirname(fileURLToPath(import.meta.url)), '../../.claude/skills/weft')
 }
 
 /**
  * Copy the bundled skill into the user's personal Claude skills
- * (`~/.claude/skills/telar/`), so Claude Code / Claude Desktop can load it from
+ * (`~/.claude/skills/weft/`), so Claude Code / Claude Desktop can load it from
  * anywhere — not only when working inside this repo. Overwrites an older copy.
  */
 function installSkill(): void {
   const src = skillSourceDir()
   if (!existsSync(join(src, 'SKILL.md'))) {
     throw new Error(
-      `Bundled Telar skill not found at ${src}. Reinstall telar, or copy .claude/skills/telar/ into ~/.claude/skills/ manually.`,
+      `Bundled Weft skill not found at ${src}. Reinstall weft, or copy .claude/skills/weft/ into ~/.claude/skills/ manually.`,
     )
   }
-  const dest = join(homedir(), '.claude', 'skills', 'telar')
+  const dest = join(homedir(), '.claude', 'skills', 'weft')
   mkdirSync(dirname(dest), { recursive: true })
   cpSync(src, dest, { recursive: true })
   console.log(
-    `Installed the Telar skill:\n  ${dest}\nStart a new Claude Code session (or reload) so it picks the skill up.`,
+    `Installed the Weft skill:\n  ${dest}\nStart a new Claude Code session (or reload) so it picks the skill up.`,
   )
 }
 
@@ -188,12 +188,12 @@ async function main(): Promise<void> {
   if (command === 'stop' || command === 'close') {
     const result = await stopManagedServer()
     if (result.status === 'not-running') {
-      console.log('No running Telar server found (nothing recorded to stop).')
+      console.log('No running Weft server found (nothing recorded to stop).')
     } else if (result.status === 'stale') {
       console.log(`No running server — cleared a stale record (pid ${result.pid}).`)
     } else {
       console.log(
-        `Stopped Telar${result.forced ? ' (forced)' : ''} — pid ${result.pid}, port ${result.port}.`,
+        `Stopped Weft${result.forced ? ' (forced)' : ''} — pid ${result.pid}, port ${result.port}.`,
       )
     }
     return
@@ -212,21 +212,21 @@ async function main(): Promise<void> {
       const { dir, initialised } = await setMaster(pathArg)
       console.log(
         initialised
-          ? `Created an empty project and pointed Telar at:\n  ${dir}`
-          : `Telar now points at:\n  ${dir}`,
+          ? `Created an empty project and pointed Weft at:\n  ${dir}`
+          : `Weft now points at:\n  ${dir}`,
       )
     } else {
       const cfg = await loadConfig()
       console.log(`config file: ${configFilePath()}`)
-      console.log(cfg ? `project:     ${cfg.masterDir}` : 'project:     (none yet — run `telar`)')
+      console.log(cfg ? `project:     ${cfg.masterDir}` : 'project:     (none yet — run `weft`)')
     }
     return
   }
 
   if (command === 'skill') {
-    // `telar skill` / `telar skill install` both install; other sub-args error.
+    // `weft skill` / `weft skill install` both install; other sub-args error.
     if (skillArg && skillArg !== 'install') {
-      throw new Error(`Unknown skill action: ${skillArg}. Use \`telar skill install\`.`)
+      throw new Error(`Unknown skill action: ${skillArg}. Use \`weft skill install\`.`)
     }
     installSkill()
     return
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
   // the exact terminal they launched from). No-op when piped / not a TTY.
   if (interactive) enterAltScreen()
 
-  // Bare `telar` in a terminal opens the menu; everything else resolves directly.
+  // Bare `weft` in a terminal opens the menu; everything else resolves directly.
   const masterDir = explicitMaster
     ? resolve(process.cwd(), explicitMaster)
     : command === 'menu' && interactive
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
     // The "THREADING…" dashboard (a plain line when piped) marks the server as
     // alive and streams request logs; it replaces the old two log lines.
     indicator = runningIndicator(`http://localhost:${info.port}`, masterDir)
-    // Record pid+port so `telar stop`/`telar close` can find us. Only the
+    // Record pid+port so `weft stop`/`weft close` can find us. Only the
     // production single process does this — dev runs in its own terminal.
     if (!dev) void writePidFile({ pid: process.pid, port: info.port, startedAt: new Date().toISOString() })
   })
@@ -268,7 +268,7 @@ async function main(): Promise<void> {
   // Graceful shutdown: stop the animation, close the listener before exiting so
   // the port is freed and no write is left half-done (BACKEND_PLAN §10). Drop
   // the PID file first (sync, so it happens even if close hangs) — a stale
-  // record would mislead the next `telar close`.
+  // record would mislead the next `weft close`.
   const shutdown = (signal: string) => {
     indicator?.stop()
     leaveAltScreen() // restore the launching terminal immediately on Ctrl+C

@@ -1,4 +1,4 @@
-import type { TelarApi } from './api'
+import type { WeftApi } from './api'
 import type {
   ConceptDetail,
   ContentFolder,
@@ -15,7 +15,7 @@ import type {
 } from './types'
 
 /**
- * Real HTTP client for `telar serve`, implementing the same TelarApi contract as
+ * Real HTTP client for `weft serve`, implementing the same WeftApi contract as
  * the mock. Every call is a fetch to `/api/*` (Vite proxies that to the backend
  * in dev; in production the same process serves both). The backend always sends
  * `{ error }` on failure, which becomes a thrown Error — exactly what the
@@ -51,7 +51,7 @@ function jsonBody(method: 'POST' | 'PUT', body: unknown): RequestInit {
 
 const enc = encodeURIComponent
 
-export const httpApi: TelarApi = {
+export const httpApi: WeftApi = {
   getGraph: () => req<Graph>('/api/graph'),
 
   getConcept: (id) => req<ConceptDetail>(`/api/concept/${enc(id)}`),

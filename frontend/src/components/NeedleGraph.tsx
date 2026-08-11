@@ -1671,7 +1671,7 @@ export default function NeedleGraph({
         })),
       ],
       style: STYLE,
-      // Positions come from .telar/layout.json (preset); fcose only weaves the
+      // Positions come from .weft/layout.json (preset); fcose only weaves the
       // very first layout below — never re-shuffling stickies or saved needles.
       layout: { name: 'preset' },
       // Shift+drag draws a selection box; needles, stickies and threads select.

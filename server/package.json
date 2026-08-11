@@ -1,11 +1,11 @@
 {
-  "name": "@telar/server",
+  "name": "@weft/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "node --import tsx --watch src/index.ts --master ../TELAR-MASTER",
+    "dev": "node --import tsx --watch src/index.ts --master ../WEFT-MASTER",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },

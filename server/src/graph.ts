@@ -2,7 +2,7 @@
 //
 // graph.json is never authored by hand: on every GET /api/graph the server
 // rebuilds { nodos, aristas } from the per-concept .meta files and rewrites
-// .telar/graph.json as a human-readable snapshot. Keeping the cache disposable
+// .weft/graph.json as a human-readable snapshot. Keeping the cache disposable
 // is what stops it from ever drifting out of sync with the sources.
 //
 // The algorithm (BACKEND_PLAN §4.3):
@@ -12,7 +12,7 @@
 //   3. Each relacion becomes an edge from the prerequisite to the dependent:
 //      meta.relaciones of concept C yields { de: rel.id, a: C.id, tipo }.
 //      Edges to unknown concepts are skipped so the cache never dangles.
-//   4. Write .telar/graph.json (pretty-printed) and return the graph.
+//   4. Write .weft/graph.json (pretty-printed) and return the graph.
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -35,9 +35,9 @@ export async function regenerateGraph(masterDir: string): Promise<Graph> {
 
   const graph: Graph = { nodos, aristas }
 
-  const telarDir = join(masterDir, '.telar')
-  await mkdir(telarDir, { recursive: true })
-  await writeFileAtomic(join(telarDir, 'graph.json'), JSON.stringify(graph, null, 2) + '\n')
+  const weftDir = join(masterDir, '.weft')
+  await mkdir(weftDir, { recursive: true })
+  await writeFileAtomic(join(weftDir, 'graph.json'), JSON.stringify(graph, null, 2) + '\n')
 
   return graph
 }

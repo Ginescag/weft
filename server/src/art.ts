@@ -1,5 +1,5 @@
-// art.ts — the terminal's face: the big "TELAR" / "THREADING" banners in the
-// ANSI Shadow block font, the Telar palette translated to ANSI, and the running
+// art.ts — the terminal's face: the big "WEFT" / "THREADING" banners in the
+// ANSI Shadow block font, the Weft palette translated to ANSI, and the running
 // indicator (an animated "THREADING…" that shows the server is alive). All of
 // it degrades to plain text when stdout is not a TTY (piped, e.g. under
 // concurrently in dev) or when NO_COLOR is set.
@@ -42,7 +42,7 @@ function installRestore(): void {
   process.on('unhandledRejection', bail)
 }
 
-/** Move Telar's UI onto the alternate screen (no-op when stdout isn't a TTY). */
+/** Move Weft's UI onto the alternate screen (no-op when stdout isn't a TTY). */
 export function enterAltScreen(): void {
   if (!process.stdout.isTTY || inAlt) return
   inAlt = true
@@ -73,7 +73,7 @@ function fg(r: number, g: number, b: number, fallback: string): string {
   return truecolor ? `\x1b[38;2;${r};${g};${b}m` : fallback
 }
 
-/** The Telar palette as ANSI. Burgundy is the thread — the one saturated tone. */
+/** The Weft palette as ANSI. Burgundy is the thread — the one saturated tone. */
 export const C = {
   reset: useColor ? RESET : '',
   bold: useColor ? '\x1b[1m' : '',
@@ -83,13 +83,14 @@ export const C = {
   moss: fg(90, 150, 116, '\x1b[32m'), // the quiet "alive / correct" tone
 }
 
-// ANSI Shadow glyphs. T/E/L/A/R are lifted from the banner in the spec; the rest
-// (H/D/I/N/G and the dot) complete "THREADING". Every row of a glyph is the same
-// width so glyphs concatenate into aligned 6-row words.
+// ANSI Shadow glyphs. W/E/F/T spell the banner; the rest (H/R/A/D/I/N/G and the
+// dot) complete "THREADING". Every row of a glyph is the same width so glyphs
+// concatenate into aligned 6-row words.
 const GLYPHS: Record<string, string[]> = {
+  W: ['██╗    ██╗', '██║    ██║', '██║ █╗ ██║', '██║███╗██║', '╚███╔███╔╝', ' ╚══╝╚══╝ '],
   T: ['████████╗', '╚══██╔══╝', '   ██║   ', '   ██║   ', '   ██║   ', '   ╚═╝   '],
   E: ['███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '███████╗', '╚══════╝'],
-  L: ['██╗     ', '██║     ', '██║     ', '██║     ', '███████╗', '╚══════╝'],
+  F: ['███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '██║     ', '╚═╝     '],
   A: [' █████╗ ', '██╔══██╗', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
   R: ['██████╗ ', '██╔══██╗', '██████╔╝', '██╔══██╗', '██║  ██║', '╚═╝  ╚═╝'],
   H: ['██╗  ██╗', '██║  ██║', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
@@ -138,9 +139,9 @@ function centerLine(visibleLen: number, decorated: string): string {
   return ' '.repeat(Math.max(0, Math.floor((cols() - visibleLen) / 2))) + decorated
 }
 
-/** The "TELAR" banner in burgundy, centred, with a muted tagline beneath. */
+/** The "WEFT" banner in burgundy, centred, with a muted tagline beneath. */
 export function printBanner(): void {
-  const art = center(renderWord('TELAR'))
+  const art = center(renderWord('WEFT'))
   const banner = art.map((r) => C.burgundy + r + C.reset).join('\n')
   const tagline = 'a loom for learning — weave concepts into a graph'
   process.stdout.write('\n' + banner + '\n')
@@ -171,7 +172,7 @@ interface Rect {
 }
 
 /**
- * The `telar serve` dashboard: a full-screen TUI (on the alternate screen) with
+ * The `weft serve` dashboard: a full-screen TUI (on the alternate screen) with
  * three burgundy-framed panels — the animated "THREADING…" banner top-left, the
  * server info top-right, and a streaming LOGS panel across the bottom. Falls back
  * to two plain lines when stdout is not a TTY (dev under concurrently, or piped).
@@ -179,20 +180,20 @@ interface Rect {
 export function runningIndicator(url: string, master: string): RunningIndicator {
   const out = process.stdout
   if (!out.isTTY) {
-    out.write(`telar serve → ${url}\nmaster: ${master}\n`)
+    out.write(`weft serve → ${url}\nmaster: ${master}\n`)
     return { stop: () => {}, log: (l) => out.write(l + '\n') }
   }
 
   const ART_W = renderWord('THREADING')[0].length + 12 // + 3 blinking dot slots
-  const stopHint = 'Ctrl+C, or `telar close` in another terminal, to stop'
+  const stopHint = 'Ctrl+C, or `weft close` in another terminal, to stop'
   // The "how to" for the bottom-left panel, as groups (title, then bullets) so
   // drawHowto can space them apart to fill the tall box. Plain text — colour and
   // clipping are applied at render time.
   const howtoGroups: string[][] = [
-    ['Telar — learn by weaving a graph.'],
+    ['Weft — learn by weaving a graph.'],
     ['▸ Open the URL above in your browser', '  to explore the graph, lessons & tests.'],
     ["▸ Drop a .pdf into a concept's", '  lessons/ folder to read it in-app.'],
-    ['▸ The AI writes lessons, examples,', '  tests & flashcards via `telar mcp`.'],
+    ['▸ The AI writes lessons, examples,', '  tests & flashcards via `weft mcp`.'],
     ['▸ Draw threads and add sticky notes', '  right on the graph canvas.'],
   ]
 

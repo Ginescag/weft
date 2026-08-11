@@ -3,7 +3,7 @@
 // / Ctrl+Y pops the redo stack. Doing a new action clears the redo stack (the
 // standard editor model). History is in-memory / per-session: a reload starts
 // clean (recovering a deleted concept still works across reloads because its
-// content waits in .telar/trash until restoreConcept, but the *stack* resets).
+// content waits in .weft/trash until restoreConcept, but the *stack* resets).
 
 export interface Command {
   /** Short human label for the action, surfaced in the undo/redo toast. */

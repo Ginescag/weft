@@ -1,5 +1,5 @@
 // master.ts — the filesystem layer. Everything that reads or writes
-// TELAR-MASTER/ lives here; it knows nothing about HTTP. api.ts stays thin and
+// WEFT-MASTER/ lives here; it knows nothing about HTTP. api.ts stays thin and
 // calls into this module (BACKEND_PLAN §5). Reads (F2) and writes (F5) both go
 // through the shared helpers below: readJson for tolerant reads, writeFileAtomic
 // for crash-safe writes, safeJoin against path traversal.
@@ -301,10 +301,10 @@ function readColor(value: unknown): StickyColor {
   return toHex(value) ?? DEFAULT_TINT
 }
 
-/** Read .telar/stickies.json tolerantly (missing/empty → no stickies; notes
+/** Read .weft/stickies.json tolerantly (missing/empty → no stickies; notes
  *  saved before the title/body split read back with an empty titulo). */
 async function readStickies(masterDir: string): Promise<Sticky[]> {
-  const file = await readJson<StickiesFile>(join(masterDir, '.telar', 'stickies.json'), {
+  const file = await readJson<StickiesFile>(join(masterDir, '.weft', 'stickies.json'), {
     stickies: [],
   })
   const list = Array.isArray(file.stickies) ? file.stickies : []
@@ -316,10 +316,10 @@ async function readStickies(masterDir: string): Promise<Sticky[]> {
   }))
 }
 
-/** Read .telar/arrows.json tolerantly (missing/empty → no arrows). Colours are
+/** Read .weft/arrows.json tolerantly (missing/empty → no arrows). Colours are
  *  normalised to hex; malformed entries are dropped rather than crashing. */
 async function readArrows(masterDir: string): Promise<Flecha[]> {
-  const file = await readJson<ArrowsFile>(join(masterDir, '.telar', 'arrows.json'), { flechas: [] })
+  const file = await readJson<ArrowsFile>(join(masterDir, '.weft', 'arrows.json'), { flechas: [] })
   const list = Array.isArray(file.flechas) ? file.flechas : []
   return list
     .filter((f) => f && typeof f.id === 'string')
@@ -334,10 +334,10 @@ async function readArrows(masterDir: string): Promise<Flecha[]> {
     }))
 }
 
-/** Read .telar/frames.json tolerantly (missing/empty → no frames). Colours are
+/** Read .weft/frames.json tolerantly (missing/empty → no frames). Colours are
  *  normalised to hex; malformed entries are dropped rather than crashing. */
 async function readFrames(masterDir: string): Promise<Marco[]> {
-  const file = await readJson<FramesFile>(join(masterDir, '.telar', 'frames.json'), { marcos: [] })
+  const file = await readJson<FramesFile>(join(masterDir, '.weft', 'frames.json'), { marcos: [] })
   const list = Array.isArray(file.marcos) ? file.marcos : []
   return list
     .filter((m) => m && typeof m.id === 'string')
@@ -373,7 +373,7 @@ function frameRect(m: Marco): { x1: number; y1: number; x2: number; y2: number; 
 async function framesWithMembers(masterDir: string): Promise<MarcoConMiembros[]> {
   const frames = await readFrames(masterDir)
   if (frames.length === 0) return []
-  const layout = await readJson<LayoutFile>(join(masterDir, '.telar', 'layout.json'), {
+  const layout = await readJson<LayoutFile>(join(masterDir, '.weft', 'layout.json'), {
     posiciones: {},
   })
   const posiciones = layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
@@ -451,11 +451,11 @@ function layoutInRect(ids: string[], m: Marco): Record<string, { x: number; y: n
   return out
 }
 
-/** Atomic write of a JSON file inside .telar/, creating the folder if needed. */
-async function writeTelarJson(masterDir: string, file: string, value: unknown): Promise<void> {
-  const telarDir = join(masterDir, '.telar')
-  await mkdir(telarDir, { recursive: true })
-  await writeFileAtomic(join(telarDir, file), toJson(value))
+/** Atomic write of a JSON file inside .weft/, creating the folder if needed. */
+async function writeWeftJson(masterDir: string, file: string, value: unknown): Promise<void> {
+  const weftDir = join(masterDir, '.weft')
+  await mkdir(weftDir, { recursive: true })
+  await writeFileAtomic(join(weftDir, file), toJson(value))
 }
 
 /** List the first-level `*.md` files of a folder, sorted. Missing folder → []. */
@@ -548,7 +548,7 @@ export async function readMeta(dir: string, ruta: string): Promise<ConceptMeta> 
 
 /**
  * Walk the master tree and index every concept (a folder holding a .meta) by id
- * (BACKEND_PLAN §4.2). Content folders and dot-folders (`.telar`, `.solutions`)
+ * (BACKEND_PLAN §4.2). Content folders and dot-folders (`.weft`, `.solutions`)
  * are never descended into, so subconcepts — nested concept folders — are found
  * but content is not mistaken for one. Duplicate ids keep the first, with a warning.
  */
@@ -648,10 +648,10 @@ export interface BuiltSubgraph {
   marco?: string
 }
 
-// --- The Master interface (all the TelarApi + generation operations) --------
+// --- The Master interface (all the WeftApi + generation operations) --------
 
 export interface Master {
-  /** Absolute path of the TELAR-MASTER/ directory this instance reads. */
+  /** Absolute path of the WEFT-MASTER/ directory this instance reads. */
   readonly dir: string
 
   // Reads (F2)
@@ -682,7 +682,7 @@ export interface Master {
   addRelation(id: string, relation: { id: string; tipo: RelationType }): Promise<void>
   removeRelation(id: string, target: string): Promise<void>
   /** Delete a concept recoverably: move its folder (and any nested subconcepts)
-   *  into .telar/trash/<id> with a manifest, strip every now-dangling relation
+   *  into .weft/trash/<id> with a manifest, strip every now-dangling relation
    *  from the survivors' .meta, and prune its layout position. restoreConcept
    *  reverses it; the UI confirms first and Ctrl+Z restores from the trash. */
   deleteConcept(id: string): Promise<void>
@@ -699,7 +699,7 @@ export interface Master {
     marco?: SubgraphFrame,
   ): Promise<BuiltSubgraph>
 
-  // Canvas state (.telar/): sticky-note annotations + saved needle positions.
+  // Canvas state (.weft/): sticky-note annotations + saved needle positions.
   getStickies(): Promise<Sticky[]>
   /** `data.id` is optional — when given and free it is honoured (so Ctrl+Z can
    *  restore a deleted sticky under its original id); otherwise one is generated. */
@@ -732,7 +732,7 @@ export interface Master {
 }
 
 /**
- * Build a Master bound to a TELAR-MASTER directory. Every operation scans the
+ * Build a Master bound to a WEFT-MASTER directory. Every operation scans the
  * tree fresh (a handful of concepts, milliseconds) so hand-edits on disk are
  * always reflected and the derived graph never drifts (BACKEND_PLAN §4.3).
  */
@@ -740,9 +740,9 @@ export function createMaster(dir: string): Master {
   // Lock keys for the read-modify-write canvas files, so concurrent per-item
   // mutators (e.g. persisting every sticky towed by a frame move at once) can't
   // lose each other's updates. See withLock above.
-  const stickiesLock = join(dir, '.telar', 'stickies.json')
-  const arrowsLock = join(dir, '.telar', 'arrows.json')
-  const framesLock = join(dir, '.telar', 'frames.json')
+  const stickiesLock = join(dir, '.weft', 'stickies.json')
+  const arrowsLock = join(dir, '.weft', 'arrows.json')
+  const framesLock = join(dir, '.weft', 'frames.json')
   return {
     dir,
 
@@ -966,7 +966,7 @@ export function createMaster(dir: string): Master {
     },
 
     // Delete a concept recoverably: move its folder (and any nested subconcepts)
-    // into .telar/trash/<id>, record a manifest of everything we strip (the
+    // into .weft/trash/<id>, record a manifest of everything we strip (the
     // survivor→removed relations + the removed needles' positions), then strip
     // those now-dangling relations and prune the layout. restoreConcept reverses
     // it; graph.json regenerates on the next read. The UI confirms first, and
@@ -984,7 +984,7 @@ export function createMaster(dir: string): Master {
       )
 
       // Capture what we're about to strip so restore can put it all back.
-      const layout = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), { posiciones: {} })
+      const layout = await readJson<LayoutFile>(join(dir, '.weft', 'layout.json'), { posiciones: {} })
       const posiciones =
         layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
       const incoming: { dependiente: string; objetivo: string; tipo: RelationType }[] = []
@@ -998,7 +998,7 @@ export function createMaster(dir: string): Master {
       for (const rid of removed) if (posiciones[rid]) positions[rid] = posiciones[rid]
 
       // 1. Move the folder into the trash (recoverable), replacing any stale copy.
-      const trashDir = join(dir, '.telar', 'trash')
+      const trashDir = join(dir, '.weft', 'trash')
       await mkdir(trashDir, { recursive: true })
       const dest = join(trashDir, id)
       await rm(dest, { recursive: true, force: true })
@@ -1027,14 +1027,14 @@ export function createMaster(dir: string): Master {
           changed = true
         }
       }
-      if (changed) await writeTelarJson(dir, 'layout.json', { posiciones })
+      if (changed) await writeWeftJson(dir, 'layout.json', { posiciones })
     },
 
     // Reverse deleteConcept: move the trashed folder back to its original path,
     // re-add the incoming relations to the survivors that still exist, restore
     // the saved positions, and drop the manifest. Returns the restored node.
     restoreConcept: async (id) => {
-      const trashDir = join(dir, '.telar', 'trash')
+      const trashDir = join(dir, '.weft', 'trash')
       const src = join(trashDir, id)
       if (!existsSync(src)) throw new NotFound(`Nothing to restore: ${id}`)
 
@@ -1076,11 +1076,11 @@ export function createMaster(dir: string): Master {
 
       // Restore the saved needle positions.
       if (Object.keys(manifest.positions).length > 0) {
-        const layout = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), { posiciones: {} })
+        const layout = await readJson<LayoutFile>(join(dir, '.weft', 'layout.json'), { posiciones: {} })
         const posiciones =
           layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
         for (const [rid, pos] of Object.entries(manifest.positions)) posiciones[rid] = pos
-        await writeTelarJson(dir, 'layout.json', { posiciones })
+        await writeWeftJson(dir, 'layout.json', { posiciones })
       }
 
       await rm(join(trashDir, `${id}.json`), { force: true })
@@ -1185,25 +1185,25 @@ export function createMaster(dir: string): Master {
           target = found
         } else {
           target = newFrame(marco, frames)
-          await writeTelarJson(dir, 'frames.json', { marcos: [...frames, target] })
+          await writeWeftJson(dir, 'frames.json', { marcos: [...frames, target] })
         }
         marcoId = target.id
         const positions = layoutInRect(
           created.map((c) => c.id),
           target,
         )
-        const layout = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), {
+        const layout = await readJson<LayoutFile>(join(dir, '.weft', 'layout.json'), {
           posiciones: {},
         })
         const base =
           layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
-        await writeTelarJson(dir, 'layout.json', { posiciones: { ...base, ...positions } })
+        await writeWeftJson(dir, 'layout.json', { posiciones: { ...base, ...positions } })
       }
 
       return { created, relations: relCount, marco: marcoId }
     },
 
-    // --- Canvas state (.telar/) ---------------------------------------------
+    // --- Canvas state (.weft/) ---------------------------------------------
     // Stickies are user annotations — real data, unlike the derived graph.json.
     // The layout keeps needle positions stable across loads, which is what
     // makes a sticky meaningful as a region marker.
@@ -1226,7 +1226,7 @@ export function createMaster(dir: string): Master {
           alto: cleanSize(data.alto ?? 170, 'alto'),
           fijado: data.fijado === true,
         }
-        await writeTelarJson(dir, 'stickies.json', { stickies: [...stickies, sticky] })
+        await writeWeftJson(dir, 'stickies.json', { stickies: [...stickies, sticky] })
         return sticky
       }),
 
@@ -1248,7 +1248,7 @@ export function createMaster(dir: string): Master {
         }
         const all = [...stickies]
         all[i] = next
-        await writeTelarJson(dir, 'stickies.json', { stickies: all })
+        await writeWeftJson(dir, 'stickies.json', { stickies: all })
         return next
       }),
 
@@ -1257,10 +1257,10 @@ export function createMaster(dir: string): Master {
         const stickies = await readStickies(dir)
         const remaining = stickies.filter((s) => s.id !== id)
         if (remaining.length === stickies.length) return // idempotent
-        await writeTelarJson(dir, 'stickies.json', { stickies: remaining })
+        await writeWeftJson(dir, 'stickies.json', { stickies: remaining })
       }),
 
-    // Roadmap arrows: same shape of CRUD as stickies, in .telar/arrows.json.
+    // Roadmap arrows: same shape of CRUD as stickies, in .weft/arrows.json.
     getArrows: () => readArrows(dir),
 
     createArrow: (data) =>
@@ -1277,7 +1277,7 @@ export function createMaster(dir: string): Master {
           color: cleanColor(data.color ?? ARROW_DEFAULT_COLOR),
           ancho: cleanArrowWidth(data.ancho ?? 14),
         }
-        await writeTelarJson(dir, 'arrows.json', { flechas: [...arrows, arrow] })
+        await writeWeftJson(dir, 'arrows.json', { flechas: [...arrows, arrow] })
         return arrow
       }),
 
@@ -1297,7 +1297,7 @@ export function createMaster(dir: string): Master {
         }
         const all = [...arrows]
         all[i] = next
-        await writeTelarJson(dir, 'arrows.json', { flechas: all })
+        await writeWeftJson(dir, 'arrows.json', { flechas: all })
         return next
       }),
 
@@ -1306,12 +1306,12 @@ export function createMaster(dir: string): Master {
         const arrows = await readArrows(dir)
         const remaining = arrows.filter((a) => a.id !== id)
         if (remaining.length === arrows.length) return // idempotent
-        await writeTelarJson(dir, 'arrows.json', { flechas: remaining })
+        await writeWeftJson(dir, 'arrows.json', { flechas: remaining })
       }),
 
     // --- Frames (regions) ---------------------------------------------------
     // A frame is a named container drawn on the canvas — same CRUD shape as a
-    // sticky, in .telar/frames.json. getFrames adds each frame's derived
+    // sticky, in .weft/frames.json. getFrames adds each frame's derived
     // membership (concept ids whose saved position falls inside its rect).
     getFrames: () => framesWithMembers(dir),
 
@@ -1319,7 +1319,7 @@ export function createMaster(dir: string): Master {
       withLock(framesLock, async () => {
         const frames = await readFrames(dir)
         const frame = newFrame(data, frames)
-        await writeTelarJson(dir, 'frames.json', { marcos: [...frames, frame] })
+        await writeWeftJson(dir, 'frames.json', { marcos: [...frames, frame] })
         return frame
       }),
 
@@ -1340,7 +1340,7 @@ export function createMaster(dir: string): Master {
         }
         const all = [...frames]
         all[i] = next
-        await writeTelarJson(dir, 'frames.json', { marcos: all })
+        await writeWeftJson(dir, 'frames.json', { marcos: all })
         return next
       }),
 
@@ -1349,11 +1349,11 @@ export function createMaster(dir: string): Master {
         const frames = await readFrames(dir)
         const remaining = frames.filter((m) => m.id !== id)
         if (remaining.length === frames.length) return // idempotent
-        await writeTelarJson(dir, 'frames.json', { marcos: remaining })
+        await writeWeftJson(dir, 'frames.json', { marcos: remaining })
       }),
 
     getLayout: async () => {
-      const file = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), {
+      const file = await readJson<LayoutFile>(join(dir, '.weft', 'layout.json'), {
         posiciones: {},
       })
       return file.posiciones && typeof file.posiciones === 'object' ? file.posiciones : {}
@@ -1367,7 +1367,7 @@ export function createMaster(dir: string): Master {
       for (const [nodeId, pos] of Object.entries(posiciones)) {
         clean[nodeId] = { x: cleanNumber(pos?.x, 'x'), y: cleanNumber(pos?.y, 'y') }
       }
-      await writeTelarJson(dir, 'layout.json', { posiciones: clean })
+      await writeWeftJson(dir, 'layout.json', { posiciones: clean })
     },
 
     // --- Content generation writes (MCP / AI) -------------------------------

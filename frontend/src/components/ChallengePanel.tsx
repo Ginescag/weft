@@ -5,7 +5,7 @@ import MarkdownView from './MarkdownView'
 import { prettyName } from './ReaderTab'
 import { EmptyState, ErrorState, Loading } from './ui'
 
-const draftKey = (conceptId: string, file: string) => `telar.draft.${conceptId}.${file}`
+const draftKey = (conceptId: string, file: string) => `weft.draft.${conceptId}.${file}`
 
 interface ChallengePanelProps {
   conceptId: string

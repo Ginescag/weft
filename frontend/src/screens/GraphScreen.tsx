@@ -185,7 +185,7 @@ export default function GraphScreen() {
 
   // A concept was deleted on the canvas (cy node already removed by NeedleGraph).
   // Sync state, trash it on disk, and push a restore command (Ctrl+Z brings it
-  // back with its content from .telar/trash and re-threads its neighbours).
+  // back with its content from .weft/trash and re-threads its neighbours).
   const handleDeleteConcept = (
     id: string,
     pos: { x: number; y: number } | null,
@@ -220,7 +220,7 @@ export default function GraphScreen() {
     <div className="flex h-dvh flex-col">
       <header className="flex items-center justify-between border-b border-hairline px-8 py-4">
         <div className="flex items-baseline gap-4">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Telar</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Weft</h1>
           <p className="text-sm text-muted">Concept graph</p>
         </div>
         <div className="flex items-center gap-5">

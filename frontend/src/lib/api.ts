@@ -17,10 +17,10 @@ import { mockApi } from './mockApi'
 import { httpApi } from './httpApi'
 
 /**
- * Client contract mirroring the future `telar serve` HTTP API 1:1.
+ * Client contract mirroring the future `weft serve` HTTP API 1:1.
  * Swapping the mock for a fetch-based client must not touch any screen.
  */
-export interface TelarApi {
+export interface WeftApi {
   /** GET /api/graph */
   getGraph(): Promise<Graph>
   /** GET /api/concept/:id — meta + file listings per folder */
@@ -59,7 +59,7 @@ export interface TelarApi {
    *  concept's .meta relaciones (the inverse of addRelation). Idempotent. */
   removeRelation(id: string, target: string): Promise<void>
   /** DELETE /api/concept/:id — delete a concept (folder + content) recoverably
-   *  to .telar/trash; the backend also strips now-dangling threads and prunes its
+   *  to .weft/trash; the backend also strips now-dangling threads and prunes its
    *  layout entry. The UI confirms first, and Ctrl+Z restores it. */
   deleteConcept(id: string): Promise<void>
   /** POST /api/concept/:id/restore — the inverse of deleteConcept (Ctrl+Z):
@@ -101,4 +101,4 @@ export interface TelarApi {
 
 // The real HTTP backend is the default; `VITE_API_MOCK=1` keeps the offline mock
 // (fixtures + localStorage) available for demos or working without a server.
-export const api: TelarApi = import.meta.env.VITE_API_MOCK === '1' ? mockApi : httpApi
+export const api: WeftApi = import.meta.env.VITE_API_MOCK === '1' ? mockApi : httpApi

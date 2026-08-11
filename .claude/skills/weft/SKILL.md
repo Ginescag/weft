@@ -1,34 +1,34 @@
 ---
-name: telar
+name: weft
 description: >-
-  Use when working with a Telar learning project over its MCP server (`telar mcp`):
+  Use when working with a Weft learning project over its MCP server (`weft mcp`):
   reading the concept graph, building a topic roadmap, generating lessons/examples/
   tests/flashcards, curating relations, reviewing recorded mistakes, or arranging the
   graph canvas (positions, region frames, sticky labels, roadmap arrows). Triggers on mentions of
-  Telar, "concept graph/roadmap", building or filling out a learning map, or the
-  `telar://` resources and Telar MCP tools.
+  Weft, "concept graph/roadmap", building or filling out a learning map, or the
+  `weft://` resources and Weft MCP tools.
 ---
 
-# Using Telar over MCP
+# Using Weft over MCP
 
-Telar is a local-first learning tool: a project is a folder of **concepts** (needles
+Weft is a local-first learning tool: a project is a folder of **concepts** (needles
 in a graph) with markdown material, rendered as an "embroidery on linen" graph in a
-browser. You drive it through the **`telar mcp`** server — the filesystem under
-`TELAR-MASTER/` is always the source of truth, so every write lands as real `.md`/
+browser. You drive it through the **`weft mcp`** server — the filesystem under
+`WEFT-MASTER/` is always the source of truth, so every write lands as real `.md`/
 `.json` on disk.
 
 ## Read first, then act
 
 Read resources before writing so you don't duplicate or mislink:
 
-- `telar://graph` — every concept + relation. **Read this first**, always.
-- `telar://concept/{id}` — one concept's name and its lesson/example/challenge/note files.
-- `telar://concept/{id}/{folder}/{file}` — the markdown of one file.
-- `telar://errors` — every recorded mistake across the project, newest first, joined
+- `weft://graph` — every concept + relation. **Read this first**, always.
+- `weft://concept/{id}` — one concept's name and its lesson/example/challenge/note files.
+- `weft://concept/{id}/{folder}/{file}` — the markdown of one file.
+- `weft://errors` — every recorded mistake across the project, newest first, joined
   with the solution that was given.
-- `telar://stickies`, `telar://layout`, `telar://arrows` — canvas state (sticky
+- `weft://stickies`, `weft://layout`, `weft://arrows` — canvas state (sticky
   labels, saved needle positions, roadmap arrows).
-- `telar://frames` — the region **frames** (named containers), each with its derived
+- `weft://frames` — the region **frames** (named containers), each with its derived
   `miembros` (the concept ids inside it). Read this before laying a new topic so you
   build it in **empty space**, not on top of an existing subgraph.
 
@@ -52,14 +52,14 @@ Read resources before writing so you don't duplicate or mislink:
    be **pinned** (`fijado: true` on create/update) to lock it in place — a drag over
    a pinned item pans the canvas instead of moving it; pin a finished roadmap frame
    so the user can't nudge it while panning.
-5. **Review** — read `telar://errors` and re-quiz the weak concepts.
+5. **Review** — read `weft://errors` and re-quiz the weak concepts.
 
 ## Frames: keep a topic self-contained
 
 A **frame** is a named region that encapsulates a subgraph. Use it to stop a new
 roadmap tangling into (or covering) what's already on the canvas:
 
-- **Place in empty space.** Read `telar://frames` + `telar://layout`, or call
+- **Place in empty space.** Read `weft://frames` + `weft://layout`, or call
   `suggest_frame_region`, to find a rectangle that doesn't overlap existing content.
 - **Build inside it.** Prefer `build_subgraph(..., marco)` (creates/uses the frame and
   auto-lays-out the batch inside). Or `create_frame` first, then `set_positions` inside
@@ -102,13 +102,13 @@ The server also exposes prompts a user can pick in their client — invoke or su
 - **`fill_concept(concepto)`** — draft + save a lesson, an example and a few questions.
 - **`teach_concept(concepto)`** / **`quiz_me(concepto)`** — teach or quiz from a concept's material.
 - **`expand_concept(concepto)`** — propose and add the missing prerequisites/sub-topics.
-- **`review_mistakes`** — go over `telar://errors` and re-quiz the missed items.
+- **`review_mistakes`** — go over `weft://errors` and re-quiz the missed items.
 
 ## A typical request
 
-"Build me a roadmap for X and fill in the first concept": read `telar://graph` +
-`telar://frames` (or `suggest_frame_region`) for empty space → `build_subgraph` the
+"Build me a roadmap for X and fill in the first concept": read `weft://graph` +
+`weft://frames` (or `suggest_frame_region`) for empty space → `build_subgraph` the
 concepts + relations for X with a **`marco`** (a new frame titled "X") so the whole map
 lands inside its own region → optionally `set_positions` left→right by depth and
 `create_sticky` per sub-cluster → pick the entry concept and `create_lesson` +
-`add_questions` for it. Verify by re-reading `telar://graph` and `telar://frames`.
+`add_questions` for it. Verify by re-reading `weft://graph` and `weft://frames`.

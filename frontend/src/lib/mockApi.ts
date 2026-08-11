@@ -1,4 +1,4 @@
-import type { TelarApi } from './api'
+import type { WeftApi } from './api'
 import type {
   ConceptDetail,
   ContentFolder,
@@ -15,14 +15,14 @@ import type {
 import { concepts, type ConceptFixture } from './fixtures'
 
 /**
- * Mock implementation of TelarApi. Fixtures are the read-only base layer;
+ * Mock implementation of WeftApi. Fixtures are the read-only base layer;
  * writes (notes, challenge solutions) land in a localStorage overlay that is
  * merged on read, so they survive reloads — the same behaviour the real
- * backend will provide by writing into TELAR-MASTER/.
+ * backend will provide by writing into WEFT-MASTER/.
  */
 
 const LATENCY_MS = 150
-const OVERLAY_KEY = 'telar.mock.overlay'
+const OVERLAY_KEY = 'weft.mock.overlay'
 
 interface Overlay {
   /** conceptId -> note file -> markdown */
@@ -39,13 +39,13 @@ interface Overlay {
   removedRelations: Record<string, string[]>
   /** fixture concepts the user deleted (read-only fixtures are masked, not erased) */
   removedConcepts: string[]
-  /** canvas sticky notes (the real backend keeps .telar/stickies.json) */
+  /** canvas sticky notes (the real backend keeps .weft/stickies.json) */
   stickies: Sticky[]
-  /** roadmap arrows (the real backend keeps .telar/arrows.json) */
+  /** roadmap arrows (the real backend keeps .weft/arrows.json) */
   arrows: Flecha[]
-  /** canvas frames / regions (the real backend keeps .telar/frames.json) */
+  /** canvas frames / regions (the real backend keeps .weft/frames.json) */
   frames: Marco[]
-  /** saved needle positions (the real backend keeps .telar/layout.json) */
+  /** saved needle positions (the real backend keeps .weft/layout.json) */
   layout: Record<string, { x: number; y: number }>
 }
 
@@ -142,7 +142,7 @@ function slugify(title: string, fallback = 'note'): string {
   return slug || fallback
 }
 
-export const mockApi: TelarApi = {
+export const mockApi: WeftApi = {
   async getGraph(): Promise<Graph> {
     await wait()
     const overlay = loadOverlay()

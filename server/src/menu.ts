@@ -1,4 +1,4 @@
-// menu.ts — the interactive `telar` menu: a tiny arrow-key single-select (no
+// menu.ts — the interactive `weft` menu: a tiny arrow-key single-select (no
 // dependency, hand-rolled with raw-mode keypress events) plus the top-level
 // menu loop. Only reached from a real terminal; non-interactive runs serve
 // directly (see index.ts / resolveManagedMaster).
@@ -32,7 +32,7 @@ const cols = (): number => process.stdout.columns || 80
 
 /**
  * Render an arrow-navigable list — each option with a muted explanation, the
- * whole block centred and coloured in the Telar palette — and resolve with the
+ * whole block centred and coloured in the Weft palette — and resolve with the
  * chosen value. ↑/↓ (or k/j) move, Enter selects; q/Esc and Ctrl-C exit.
  */
 function select<T>(choices: Choice<T>[]): Promise<T> {
@@ -103,7 +103,7 @@ function select<T>(choices: Choice<T>[]): Promise<T> {
 type Action = 'serve' | 'move' | 'quit'
 
 /**
- * The bare-`telar` menu: make sure a project exists (create / regenerate /
+ * The bare-`weft` menu: make sure a project exists (create / regenerate /
  * relocate as needed), then loop Start / Move / Quit. Returns the master dir to
  * serve once the user chooses Start.
  */
@@ -123,8 +123,8 @@ export async function runInteractiveMenu(): Promise<string> {
       ' '.repeat(Math.max(0, Math.floor((cols() - (10 + master.length)) / 2))) + loc + '\n\n',
     )
     const action = await select<Action>([
-      { label: 'Start Telar', desc: 'open the dashboard in your browser', value: 'serve' },
-      { label: 'Move project', desc: 'relocate your TELAR-MASTER folder', value: 'move' },
+      { label: 'Start Weft', desc: 'open the dashboard in your browser', value: 'serve' },
+      { label: 'Move project', desc: 'relocate your WEFT-MASTER folder', value: 'move' },
       { label: 'Quit', desc: 'close this menu', value: 'quit' },
     ])
     if (action === 'serve') return master

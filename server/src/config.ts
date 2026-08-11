@@ -1,42 +1,42 @@
-// config.ts — the persisted "where is my TELAR-MASTER?" pointer plus the
-// interactive project actions behind the `telar` command (create, relocate,
+// config.ts — the persisted "where is my WEFT-MASTER?" pointer plus the
+// interactive project actions behind the `weft` command (create, relocate,
 // regenerate, move). "Managed mode" = no --master flag: the CLI remembers the
-// chosen location so `telar` always reopens the same project. A generated master
-// is always a folder literally named TELAR-MASTER, and empty (just `.telar/`).
+// chosen location so `weft` always reopens the same project. A generated master
+// is always a folder literally named WEFT-MASTER, and empty (just `.weft/`).
 
 import { access, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
-export interface TelarConfig {
-  /** Absolute path of the user's TELAR-MASTER directory. */
+export interface WeftConfig {
+  /** Absolute path of the user's WEFT-MASTER directory. */
   masterDir: string
 }
 
-const MASTER_DIRNAME = 'TELAR-MASTER'
+const MASTER_DIRNAME = 'WEFT-MASTER'
 const toJson = (v: unknown): string => JSON.stringify(v, null, 2) + '\n'
 
-/** Per-user config dir: %APPDATA%\telar on Windows, ~/.config/telar elsewhere. */
+/** Per-user config dir: %APPDATA%\weft on Windows, ~/.config/weft elsewhere. */
 function configDir(): string {
   if (process.platform === 'win32' && process.env.APPDATA) {
-    return join(process.env.APPDATA, 'telar')
+    return join(process.env.APPDATA, 'weft')
   }
-  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, 'telar')
-  return join(homedir(), '.config', 'telar')
+  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, 'weft')
+  return join(homedir(), '.config', 'weft')
 }
 
 /** Absolute path of the per-user config file that remembers the active project. */
 export const configFilePath = (): string => join(configDir(), 'config.json')
 
-export async function loadConfig(): Promise<TelarConfig | null> {
+export async function loadConfig(): Promise<WeftConfig | null> {
   try {
-    const cfg = JSON.parse(await readFile(configFilePath(), 'utf8')) as Partial<TelarConfig>
+    const cfg = JSON.parse(await readFile(configFilePath(), 'utf8')) as Partial<WeftConfig>
     if (!cfg.masterDir) return null
     // Legacy configs (saved before resolveMasterPath existed) can point at a
     // bare parent like the Desktop — serving one would scan the whole folder as
     // a project. Normalise the stored value like any other user-supplied path;
-    // if the resulting TELAR-MASTER doesn't exist, the callers' missing-master
+    // if the resulting WEFT-MASTER doesn't exist, the callers' missing-master
     // flows take over (regenerate / relocate) instead of adopting the parent.
     return { masterDir: resolveMasterPath(cfg.masterDir) }
   } catch {
@@ -44,7 +44,7 @@ export async function loadConfig(): Promise<TelarConfig | null> {
   }
 }
 
-export async function saveConfig(cfg: TelarConfig): Promise<void> {
+export async function saveConfig(cfg: WeftConfig): Promise<void> {
   await mkdir(configDir(), { recursive: true })
   await writeFile(configFilePath(), toJson(cfg), 'utf8')
 }
@@ -58,8 +58,8 @@ export async function masterExists(dir: string): Promise<boolean> {
   }
 }
 
-// --- runtime PID file (telar serve ↔ telar stop) ----------------------------
-// A running `telar serve` records its pid + port here so `telar stop` can find
+// --- runtime PID file (weft serve ↔ weft stop) ----------------------------
+// A running `weft serve` records its pid + port here so `weft stop` can find
 // and terminate it without the user hunting the port by hand. This is machine
 // state like config.json — it lives beside it in the per-user config dir, and
 // only the production single-process server writes it (dev is Ctrl+C in its own
@@ -116,7 +116,7 @@ export type StopResult =
   | { status: 'stopped'; pid: number; port: number; forced: boolean }
 
 /**
- * Stop the managed `telar serve` recorded in the PID file. Sends SIGTERM
+ * Stop the managed `weft serve` recorded in the PID file. Sends SIGTERM
  * (graceful on POSIX, immediate on Windows), and escalates to SIGKILL if the
  * process lingers past a short grace period. A missing file ⇒ nothing to stop;
  * a dead pid ⇒ a stale record, which is simply cleaned up.
@@ -152,10 +152,10 @@ export async function stopManagedServer(): Promise<StopResult> {
 }
 
 /**
- * Normalise a user-supplied path to an actual TELAR-MASTER folder: given a parent
- * directory we place `TELAR-MASTER` inside it; given a path that already ends in
- * `TELAR-MASTER` we keep it. So the folder is always named consistently and the
- * user can never accidentally point Telar at a bare parent (e.g. the Desktop).
+ * Normalise a user-supplied path to an actual WEFT-MASTER folder: given a parent
+ * directory we place `WEFT-MASTER` inside it; given a path that already ends in
+ * `WEFT-MASTER` we keep it. So the folder is always named consistently and the
+ * user can never accidentally point Weft at a bare parent (e.g. the Desktop).
  */
 export function resolveMasterPath(input: string): string {
   const abs = resolve(input)
@@ -163,14 +163,14 @@ export function resolveMasterPath(input: string): string {
 }
 
 /**
- * Create an empty TELAR-MASTER: just the `.telar/` folder with a starter project
+ * Create an empty WEFT-MASTER: just the `.weft/` folder with a starter project
  * `.config`. No concepts — the user adds them from the app; `graph.json` is
  * derived and written on the first GET /api/graph.
  */
 export async function scaffoldEmptyMaster(dir: string): Promise<void> {
-  await mkdir(join(dir, '.telar'), { recursive: true })
+  await mkdir(join(dir, '.weft'), { recursive: true })
   await writeFile(
-    join(dir, '.telar', '.config'),
+    join(dir, '.weft', '.config'),
     toJson({
       version: '0.1',
       idioma: 'en',
@@ -212,10 +212,10 @@ async function confirm(question: string): Promise<boolean> {
   return answer === '' || answer === 'y' || answer === 'yes' || answer === 's' || answer === 'si'
 }
 
-/** First run: ask for a parent folder and create `<parent>/TELAR-MASTER` (empty). */
+/** First run: ask for a parent folder and create `<parent>/WEFT-MASTER` (empty). */
 export async function createProjectInteractive(): Promise<string> {
-  console.log('Welcome to Telar. Let’s create your project folder.')
-  const parent = await ask('In which folder should TELAR-MASTER be created?', homedir())
+  console.log('Welcome to Weft. Let’s create your project folder.')
+  const parent = await ask('In which folder should WEFT-MASTER be created?', homedir())
   const dir = resolveMasterPath(parent)
   await scaffoldEmptyMaster(dir)
   await saveConfig({ masterDir: dir })
@@ -225,14 +225,14 @@ export async function createProjectInteractive(): Promise<string> {
 
 /** The saved project folder is gone: offer to regenerate in place or relocate. */
 export async function handleMissingMaster(missing: string): Promise<string> {
-  console.log(`TELAR-MASTER not found at:\n  ${missing}`)
+  console.log(`WEFT-MASTER not found at:\n  ${missing}`)
   if (await confirm('Regenerate an empty project there? (No lets you pick another folder)')) {
     await scaffoldEmptyMaster(missing)
     await saveConfig({ masterDir: missing })
     console.log(`Regenerated: ${missing}`)
     return missing
   }
-  const parent = await ask('In which folder should TELAR-MASTER be created?', dirname(missing))
+  const parent = await ask('In which folder should WEFT-MASTER be created?', dirname(missing))
   const dir = resolveMasterPath(parent)
   await scaffoldEmptyMaster(dir)
   await saveConfig({ masterDir: dir })
@@ -241,16 +241,16 @@ export async function handleMissingMaster(missing: string): Promise<string> {
 }
 
 /**
- * Move the current project into `<parent>/TELAR-MASTER`. Returns the new dir, or
+ * Move the current project into `<parent>/WEFT-MASTER`. Returns the new dir, or
  * null if nothing changed (same place / destination already taken).
  */
 export async function moveProjectInteractive(current: string): Promise<string | null> {
-  // Safety: only ever move a real TELAR-MASTER folder. A legacy pointer at a bare
+  // Safety: only ever move a real WEFT-MASTER folder. A legacy pointer at a bare
   // parent (e.g. the Desktop) must be repointed, never renamed wholesale.
   if (basename(current) !== MASTER_DIRNAME) {
     console.log(
-      `The saved location isn't a TELAR-MASTER folder:\n  ${current}\n` +
-        'Use `telar path <dir>` to point at a proper project first.',
+      `The saved location isn't a WEFT-MASTER folder:\n  ${current}\n` +
+        'Use `weft path <dir>` to point at a proper project first.',
     )
     return null
   }
@@ -274,16 +274,16 @@ export async function moveProjectInteractive(current: string): Promise<string | 
   return dest
 }
 
-// --- setMaster (the `telar path <dir>` command) -----------------------------
+// --- setMaster (the `weft path <dir>` command) -----------------------------
 
 /**
- * Point Telar at a master and remember it. The path is normalised to end in
- * TELAR-MASTER; a missing folder is initialised empty, an existing project is
+ * Point Weft at a master and remember it. The path is normalised to end in
+ * WEFT-MASTER; a missing folder is initialised empty, an existing project is
  * adopted untouched. Never deletes the old location.
  */
 export async function setMaster(input: string): Promise<{ dir: string; initialised: boolean }> {
   const dir = resolveMasterPath(input)
-  const initialised = !(await masterExists(join(dir, '.telar')))
+  const initialised = !(await masterExists(join(dir, '.weft')))
   if (initialised) await scaffoldEmptyMaster(dir)
   await saveConfig({ masterDir: dir })
   return { dir, initialised }
@@ -292,10 +292,10 @@ export async function setMaster(input: string): Promise<{ dir: string; initialis
 // --- resolveManagedMaster (serve path, non-interactive-safe) ----------------
 
 /**
- * Resolve the master directory for `telar serve` / non-interactive runs:
+ * Resolve the master directory for `weft serve` / non-interactive runs:
  * saved-and-present → use it; saved-but-gone → regenerate/relocate; first run →
  * create. Non-interactive shells get a clear error instead of a hang. (Bare
- * `telar` in a terminal goes through the menu instead — see menu.ts.)
+ * `weft` in a terminal goes through the menu instead — see menu.ts.)
  */
 export async function resolveManagedMaster(): Promise<string> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY)
@@ -305,7 +305,7 @@ export async function resolveManagedMaster(): Promise<string> {
     if (await masterExists(cfg.masterDir)) return cfg.masterDir
     if (!interactive) {
       throw new Error(
-        `TELAR-MASTER is missing (${cfg.masterDir}). Run \`telar\` in a terminal to regenerate or relocate it, or pass --master PATH.`,
+        `WEFT-MASTER is missing (${cfg.masterDir}). Run \`weft\` in a terminal to regenerate or relocate it, or pass --master PATH.`,
       )
     }
     return handleMissingMaster(cfg.masterDir)
@@ -313,7 +313,7 @@ export async function resolveManagedMaster(): Promise<string> {
 
   if (!interactive) {
     throw new Error(
-      'First run needs an interactive terminal to choose where TELAR-MASTER goes, or pass --master PATH.',
+      'First run needs an interactive terminal to choose where WEFT-MASTER goes, or pass --master PATH.',
     )
   }
   return createProjectInteractive()

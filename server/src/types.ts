@@ -2,7 +2,7 @@
 // (A shared workspace would remove the duplication; kept copied for now to
 // avoid adding build complexity. These ~60 lines are stable — see BACKEND_PLAN §5.)
 //
-// Data keys are Spanish to match the on-disk formats defined in TELAR_PLAN.md
+// Data keys are Spanish to match the on-disk formats defined in WEFT_PLAN.md
 // (.meta, .errorlog, graph.json, tests.json, flashcard.json). UI and code are English.
 
 export type RelationType = 'requiere' | 'relacionado_con'
@@ -63,7 +63,7 @@ export interface FlashcardsFile {
 export type StickyColor = string
 
 /** A sticky note pinned on the graph canvas (n8n-style annotation), stored in
- *  .telar/stickies.json. Position/size are graph (model) coordinates.
+ *  .weft/stickies.json. Position/size are graph (model) coordinates.
  *  `titulo` is the big header shown in the note's tab; `texto` is the optional
  *  body underneath (older files without `titulo` read back as ''). */
 export interface Sticky {
@@ -80,7 +80,7 @@ export interface Sticky {
   fijado?: boolean
 }
 
-/** .telar/stickies.json — user annotations, real data (not a derived cache). */
+/** .weft/stickies.json — user annotations, real data (not a derived cache). */
 export interface StickiesFile {
   stickies: Sticky[]
 }
@@ -98,7 +98,7 @@ export interface Flecha {
   ancho: number
 }
 
-/** .telar/arrows.json — roadmap arrow annotations, real data (not a cache). */
+/** .weft/arrows.json — roadmap arrow annotations, real data (not a cache). */
 export interface ArrowsFile {
   flechas: Flecha[]
 }
@@ -129,12 +129,12 @@ export interface MarcoConMiembros extends Marco {
   miembros: string[]
 }
 
-/** .telar/frames.json — frame (region) annotations, real data (not a cache). */
+/** .weft/frames.json — frame (region) annotations, real data (not a cache). */
 export interface FramesFile {
   marcos: Marco[]
 }
 
-/** .telar/layout.json — saved needle positions so the canvas is stable across
+/** .weft/layout.json — saved needle positions so the canvas is stable across
  *  loads (a prerequisite for stickies to mark meaningful regions). */
 export interface LayoutFile {
   posiciones: Record<string, { x: number; y: number }>

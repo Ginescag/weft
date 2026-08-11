@@ -1,4 +1,4 @@
-// Data keys are Spanish to match the on-disk formats defined in TELAR_PLAN.md
+// Data keys are Spanish to match the on-disk formats defined in WEFT_PLAN.md
 // (.meta, .errorlog, graph.json, tests.json, flashcard.json). UI and code are English.
 
 export type RelationType = 'requiere' | 'relacionado_con'
@@ -93,7 +93,7 @@ export interface Flecha {
  *  is a structural container: new concepts are placed inside its rect and the AI
  *  keeps their relations within it. Position (`x`,`y` = centre) and size are
  *  graph (model) coordinates; `color` is a hex tint for its border/fill.
- *  Stored in .telar/frames.json — real user data, not a derived cache. */
+ *  Stored in .weft/frames.json — real user data, not a derived cache. */
 export interface Marco {
   id: string
   nombre: string

@@ -48,7 +48,7 @@ export function createApi(master: Master, opts: ApiOptions): Hono {
   // Every recorded mistake across the project, resolved for the timeline.
   app.get('/api/errors', async (c) => c.json({ errores: await master.getErrors() }))
 
-  // Canvas state: sticky-note annotations + saved needle positions (.telar/).
+  // Canvas state: sticky-note annotations + saved needle positions (.weft/).
   app.get('/api/stickies', async (c) => c.json({ stickies: await master.getStickies() }))
 
   app.get('/api/layout', async (c) => c.json({ posiciones: await master.getLayout() }))
@@ -134,7 +134,7 @@ export function createApi(master: Master, opts: ApiOptions): Hono {
     return c.body(null, 204)
   })
 
-  // Delete a concept (folder + content) recoverably to .telar/trash; the master
+  // Delete a concept (folder + content) recoverably to .weft/trash; the master
   // also strips now-dangling relations and prunes the layout. 404 unknown.
   app.delete('/api/concept/:id', async (c) => {
     await master.deleteConcept(c.req.param('id'))
