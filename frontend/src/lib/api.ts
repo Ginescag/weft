@@ -58,18 +58,27 @@ export interface TelarApi {
   /** DELETE /api/concept/:id/relations/:target — drop `target` from the
    *  concept's .meta relaciones (the inverse of addRelation). Idempotent. */
   removeRelation(id: string, target: string): Promise<void>
+  /** DELETE /api/concept/:id — delete a concept (folder + content) recoverably
+   *  to .telar/trash; the backend also strips now-dangling threads and prunes its
+   *  layout entry. The UI confirms first, and Ctrl+Z restores it. */
+  deleteConcept(id: string): Promise<void>
+  /** POST /api/concept/:id/restore — the inverse of deleteConcept (Ctrl+Z):
+   *  move the trashed concept back and re-thread its incoming relations. */
+  restoreConcept(id: string): Promise<GraphNode>
   /** GET /api/stickies — the canvas sticky-note annotations. */
   getStickies(): Promise<Sticky[]>
-  /** POST /api/stickies — pin a new sticky, returns it with its id. */
-  createSticky(data: Omit<Sticky, 'id'>): Promise<Sticky>
+  /** POST /api/stickies — pin a new sticky, returns it with its id. A free
+   *  `data.id` is honoured (so Ctrl+Z can restore a deleted sticky as-is). */
+  createSticky(data: Omit<Sticky, 'id'> & { id?: string }): Promise<Sticky>
   /** PUT /api/stickies/:id — patch a sticky (text, color, position, size). */
   updateSticky(id: string, patch: Partial<Omit<Sticky, 'id'>>): Promise<void>
   /** DELETE /api/stickies/:id. Idempotent. */
   deleteSticky(id: string): Promise<void>
   /** GET /api/arrows — roadmap arrow annotations (free canvas objects). */
   getArrows(): Promise<Flecha[]>
-  /** POST /api/arrows — add a roadmap arrow, returns it with its id. */
-  createArrow(data: Omit<Flecha, 'id'>): Promise<Flecha>
+  /** POST /api/arrows — add a roadmap arrow, returns it with its id. A free
+   *  `data.id` is honoured (for Ctrl+Z restore). */
+  createArrow(data: Omit<Flecha, 'id'> & { id?: string }): Promise<Flecha>
   /** PUT /api/arrows/:id — patch an arrow (endpoints, color, width). */
   updateArrow(id: string, patch: Partial<Omit<Flecha, 'id'>>): Promise<void>
   /** DELETE /api/arrows/:id. Idempotent. */
@@ -77,8 +86,9 @@ export interface TelarApi {
   /** GET /api/frames — canvas frames (regions), each with its derived `miembros`
    *  (the concept ids whose saved position falls inside the frame's rect). */
   getFrames(): Promise<MarcoConMiembros[]>
-  /** POST /api/frames — add a frame, returns it with its id. */
-  createFrame(data: Omit<Marco, 'id'>): Promise<Marco>
+  /** POST /api/frames — add a frame, returns it with its id. A free `data.id`
+   *  is honoured (for Ctrl+Z restore). */
+  createFrame(data: Omit<Marco, 'id'> & { id?: string }): Promise<Marco>
   /** PUT /api/frames/:id — patch a frame (name, color, position, size). */
   updateFrame(id: string, patch: Partial<Omit<Marco, 'id'>>): Promise<void>
   /** DELETE /api/frames/:id. Idempotent. */

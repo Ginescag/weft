@@ -5,8 +5,8 @@
 // for crash-safe writes, safeJoin against path traversal.
 
 import { randomBytes } from 'node:crypto'
-import type { Dirent } from 'node:fs'
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { existsSync, type Dirent } from 'node:fs'
+import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import type {
   ArrowsFile,
@@ -396,13 +396,23 @@ async function framesWithMembers(masterDir: string): Promise<MarcoConMiembros[]>
   return rects.map(({ m, miembros }) => ({ ...m, miembros: miembros.sort() }))
 }
 
-/** Build a fresh Marco (with a new `f…` id) from partial data, given the frames
- *  that already exist — shared by createFrame and buildSubgraph's frame spec. */
-function newFrame(data: Partial<Omit<Marco, 'id'>>, existing: Marco[]): Marco {
+/** Pick an id for a new canvas item: honour a caller-supplied one when it is a
+ *  free non-empty string (so Ctrl+Z can restore a deleted item under its original
+ *  id), else generate the next free `<prefix><n>`. */
+function pickId(prefix: string, used: Set<string>, count: number, preferred?: string): string {
+  if (typeof preferred === 'string' && preferred && !used.has(preferred)) return preferred
+  let n = count + 1
+  let id = `${prefix}${n}`
+  while (used.has(id)) id = `${prefix}${++n}`
+  return id
+}
+
+/** Build a fresh Marco from partial data, given the frames that already exist —
+ *  shared by createFrame and buildSubgraph's frame spec. A free `data.id` is
+ *  honoured (for undo restore); otherwise a new `f…` id is generated. */
+function newFrame(data: Partial<Marco>, existing: Marco[]): Marco {
   const used = new Set(existing.map((m) => m.id))
-  let n = existing.length + 1
-  let id = `f${n}`
-  while (used.has(id)) id = `f${++n}`
+  const id = pickId('f', used, existing.length, data.id)
   return {
     id,
     nombre: typeof data.nombre === 'string' ? data.nombre : '',
@@ -671,6 +681,15 @@ export interface Master {
   updateConcept(id: string, patch: { nombre?: string; resumen?: string }): Promise<GraphNode>
   addRelation(id: string, relation: { id: string; tipo: RelationType }): Promise<void>
   removeRelation(id: string, target: string): Promise<void>
+  /** Delete a concept recoverably: move its folder (and any nested subconcepts)
+   *  into .telar/trash/<id> with a manifest, strip every now-dangling relation
+   *  from the survivors' .meta, and prune its layout position. restoreConcept
+   *  reverses it; the UI confirms first and Ctrl+Z restores from the trash. */
+  deleteConcept(id: string): Promise<void>
+  /** Reverse deleteConcept: move the trashed folder back, re-add the incoming
+   *  relations to the survivors that still exist, and restore the positions.
+   *  404 if nothing is in the trash for that id. */
+  restoreConcept(id: string): Promise<GraphNode>
   /** Batch: create many concepts and wire their relations in a single call
    *  (one filesystem scan). Relations may reference the new concepts by `ref`.
    *  With `marco`, the created concepts are placed inside that frame's rect. */
@@ -682,17 +701,19 @@ export interface Master {
 
   // Canvas state (.telar/): sticky-note annotations + saved needle positions.
   getStickies(): Promise<Sticky[]>
-  createSticky(data: Partial<Omit<Sticky, 'id'>>): Promise<Sticky>
+  /** `data.id` is optional — when given and free it is honoured (so Ctrl+Z can
+   *  restore a deleted sticky under its original id); otherwise one is generated. */
+  createSticky(data: Partial<Sticky>): Promise<Sticky>
   updateSticky(id: string, patch: Partial<Omit<Sticky, 'id'>>): Promise<Sticky>
   deleteSticky(id: string): Promise<void>
   // Roadmap arrows: free-floating canvas annotations (like stickies, not relations).
   getArrows(): Promise<Flecha[]>
-  createArrow(data: Partial<Omit<Flecha, 'id'>>): Promise<Flecha>
+  createArrow(data: Partial<Flecha>): Promise<Flecha>
   updateArrow(id: string, patch: Partial<Omit<Flecha, 'id'>>): Promise<Flecha>
   deleteArrow(id: string): Promise<void>
   // Frames (regions): named containers; `getFrames` returns derived `miembros`.
   getFrames(): Promise<MarcoConMiembros[]>
-  createFrame(data: Partial<Omit<Marco, 'id'>>): Promise<Marco>
+  createFrame(data: Partial<Marco>): Promise<Marco>
   updateFrame(id: string, patch: Partial<Omit<Marco, 'id'>>): Promise<Marco>
   deleteFrame(id: string): Promise<void>
   getLayout(): Promise<Record<string, { x: number; y: number }>>
@@ -944,6 +965,130 @@ export function createMaster(dir: string): Master {
       await writeFileAtomic(join(entry.dir, '.meta'), toJson(next))
     },
 
+    // Delete a concept recoverably: move its folder (and any nested subconcepts)
+    // into .telar/trash/<id>, record a manifest of everything we strip (the
+    // survivor→removed relations + the removed needles' positions), then strip
+    // those now-dangling relations and prune the layout. restoreConcept reverses
+    // it; graph.json regenerates on the next read. The UI confirms first, and
+    // Ctrl+Z restores from the trash.
+    deleteConcept: async (id) => {
+      const before = await scanConcepts(dir)
+      const entry = before.get(id)
+      if (!entry) throw new NotFound(`Unknown concept: ${id}`)
+
+      // The removed subtree: this concept plus any nested subconcept folder.
+      const removed = new Set(
+        [...before.values()]
+          .filter((e) => e.dir === entry.dir || e.dir.startsWith(entry.dir + sep))
+          .map((e) => e.id),
+      )
+
+      // Capture what we're about to strip so restore can put it all back.
+      const layout = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), { posiciones: {} })
+      const posiciones =
+        layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
+      const incoming: { dependiente: string; objetivo: string; tipo: RelationType }[] = []
+      for (const e of before.values()) {
+        if (removed.has(e.id)) continue // survivors only
+        for (const r of e.meta.relaciones) {
+          if (removed.has(r.id)) incoming.push({ dependiente: e.id, objetivo: r.id, tipo: r.tipo })
+        }
+      }
+      const positions: Record<string, { x: number; y: number }> = {}
+      for (const rid of removed) if (posiciones[rid]) positions[rid] = posiciones[rid]
+
+      // 1. Move the folder into the trash (recoverable), replacing any stale copy.
+      const trashDir = join(dir, '.telar', 'trash')
+      await mkdir(trashDir, { recursive: true })
+      const dest = join(trashDir, id)
+      await rm(dest, { recursive: true, force: true })
+      await rename(entry.dir, dest)
+      await writeFileAtomic(
+        join(trashDir, `${id}.json`),
+        toJson({ id, ruta: entry.ruta, incoming, positions }),
+      )
+
+      // 2. Strip the now-dangling relations from the survivors' .meta.
+      const after = await scanConcepts(dir)
+      await Promise.all(
+        [...after.values()].map(async (e) => {
+          const kept = e.meta.relaciones.filter((r) => after.has(r.id))
+          if (kept.length !== e.meta.relaciones.length) {
+            await writeFileAtomic(join(e.dir, '.meta'), toJson({ ...e.meta, relaciones: kept }))
+          }
+        }),
+      )
+
+      // 3. Prune the removed ids from the saved layout.
+      let changed = false
+      for (const key of Object.keys(posiciones)) {
+        if (!after.has(key)) {
+          delete posiciones[key]
+          changed = true
+        }
+      }
+      if (changed) await writeTelarJson(dir, 'layout.json', { posiciones })
+    },
+
+    // Reverse deleteConcept: move the trashed folder back to its original path,
+    // re-add the incoming relations to the survivors that still exist, restore
+    // the saved positions, and drop the manifest. Returns the restored node.
+    restoreConcept: async (id) => {
+      const trashDir = join(dir, '.telar', 'trash')
+      const src = join(trashDir, id)
+      if (!existsSync(src)) throw new NotFound(`Nothing to restore: ${id}`)
+
+      const manifest = await readJson<{
+        id: string
+        ruta: string
+        incoming: { dependiente: string; objetivo: string; tipo: RelationType }[]
+        positions: Record<string, { x: number; y: number }>
+      }>(join(trashDir, `${id}.json`), { id, ruta: id, incoming: [], positions: {} })
+
+      const destDir = safeJoin(dir, manifest.ruta || id)
+      if (existsSync(destDir)) throw new BadRequest(`Concept already exists: ${id}`)
+      await rename(src, destDir)
+
+      // Re-add the incoming relations (grouped per dependent), skipping any whose
+      // ends no longer both exist (a survivor could have been deleted meanwhile).
+      const index = await scanConcepts(dir)
+      const byDependent = new Map<string, { objetivo: string; tipo: RelationType }[]>()
+      for (const rel of manifest.incoming) {
+        if (!index.has(rel.dependiente) || !index.has(rel.objetivo)) continue
+        const list = byDependent.get(rel.dependiente) ?? []
+        list.push({ objetivo: rel.objetivo, tipo: rel.tipo })
+        byDependent.set(rel.dependiente, list)
+      }
+      await Promise.all(
+        [...byDependent.entries()].map(async ([depId, rels]) => {
+          const e = index.get(depId)!
+          const relaciones = [...e.meta.relaciones]
+          for (const r of rels) {
+            if (!relaciones.some((x) => x.id === r.objetivo)) {
+              relaciones.push({ id: r.objetivo, tipo: r.tipo })
+            }
+          }
+          if (relaciones.length !== e.meta.relaciones.length) {
+            await writeFileAtomic(join(e.dir, '.meta'), toJson({ ...e.meta, relaciones }))
+          }
+        }),
+      )
+
+      // Restore the saved needle positions.
+      if (Object.keys(manifest.positions).length > 0) {
+        const layout = await readJson<LayoutFile>(join(dir, '.telar', 'layout.json'), { posiciones: {} })
+        const posiciones =
+          layout.posiciones && typeof layout.posiciones === 'object' ? layout.posiciones : {}
+        for (const [rid, pos] of Object.entries(manifest.positions)) posiciones[rid] = pos
+        await writeTelarJson(dir, 'layout.json', { posiciones })
+      }
+
+      await rm(join(trashDir, `${id}.json`), { force: true })
+
+      const meta = await readMeta(destDir, manifest.ruta || id)
+      return { id: meta.id, nombre: meta.nombre, ruta: manifest.ruta || id, resumen: meta.resumen }
+    },
+
     // Create many concepts and wire their relations in one pass. Scans the tree
     // ONCE (createConcept would re-scan per node), assigns unique slugged ids,
     // then applies relations that may point at the just-created concepts by ref.
@@ -1069,9 +1214,7 @@ export function createMaster(dir: string): Master {
       withLock(stickiesLock, async () => {
         const stickies = await readStickies(dir)
         const used = new Set(stickies.map((s) => s.id))
-        let n = stickies.length + 1
-        let id = `s${n}`
-        while (used.has(id)) id = `s${++n}`
+        const id = pickId('s', used, stickies.length, data.id)
         const sticky: Sticky = {
           id,
           titulo: typeof data.titulo === 'string' ? data.titulo : '',
@@ -1124,9 +1267,7 @@ export function createMaster(dir: string): Master {
       withLock(arrowsLock, async () => {
         const arrows = await readArrows(dir)
         const used = new Set(arrows.map((a) => a.id))
-        let n = arrows.length + 1
-        let id = `a${n}`
-        while (used.has(id)) id = `a${++n}`
+        const id = pickId('a', used, arrows.length, data.id)
         const arrow: Flecha = {
           id,
           x1: cleanNumber(data.x1 ?? 0, 'x1'),

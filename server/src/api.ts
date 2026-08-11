@@ -134,6 +134,19 @@ export function createApi(master: Master, opts: ApiOptions): Hono {
     return c.body(null, 204)
   })
 
+  // Delete a concept (folder + content) recoverably to .telar/trash; the master
+  // also strips now-dangling relations and prunes the layout. 404 unknown.
+  app.delete('/api/concept/:id', async (c) => {
+    await master.deleteConcept(c.req.param('id'))
+    return c.body(null, 204)
+  })
+
+  // Restore a trashed concept (the inverse of DELETE, used by Ctrl+Z). Returns
+  // the restored graph node; 404 if nothing is in the trash for that id.
+  app.post('/api/concept/:id/restore', async (c) => {
+    return c.json(await master.restoreConcept(c.req.param('id')))
+  })
+
   // --- canvas writes (stickies + layout) ------------------------------------
   app.post('/api/stickies', async (c) => {
     const body = await c.req.json<Partial<Omit<Sticky, 'id'>>>()

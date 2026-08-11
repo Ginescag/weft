@@ -22,9 +22,20 @@ import {
   Plus,
   PushPin,
   Scissors,
+  Trash,
 } from '@phosphor-icons/react'
 import { api } from '../lib/api'
-import type { Flecha, Graph, GraphEdge, Marco, RelationType, Sticky, StickyColor } from '../lib/types'
+import type {
+  Flecha,
+  Graph,
+  GraphEdge,
+  GraphNode,
+  Marco,
+  RelationType,
+  Sticky,
+  StickyColor,
+} from '../lib/types'
+import type { UndoManager } from '../lib/undo'
 
 cytoscape.use(fcose)
 cytoscape.use(edgehandles)
@@ -371,6 +382,11 @@ const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: r
 
 export interface NeedleGraphHandle {
   centerOn: (id: string) => void
+  /** Add a needle to the canvas at `pos` (or viewport centre) plus its incident
+   *  threads — used by GraphScreen's undo/redo to re-sync cy on concept restore. */
+  addNeedle: (node: GraphNode, pos: { x: number; y: number } | null, edges: GraphEdge[]) => void
+  /** Remove a needle (cytoscape drops its threads) — used by undo of a create. */
+  removeNeedle: (id: string) => void
   zoomIn: () => void
   zoomOut: () => void
   fit: () => void
@@ -400,6 +416,14 @@ interface EdgeMenu {
   edgeId: string
   deNombre: string
   aNombre: string
+  x: number
+  y: number
+}
+
+/** The confirm popover shown when right-clicking a needle to delete its concept. */
+interface DeleteMenu {
+  id: string
+  nombre: string
   x: number
   y: number
 }
@@ -434,6 +458,13 @@ interface NeedleGraphProps {
   onConnect: (edge: GraphEdge) => void
   /** A thread was cut on the canvas; the parent persists the removal. */
   onDisconnect: (edge: GraphEdge) => void
+  /** A concept was deleted from the canvas; the parent persists the removal and
+   *  drops the node (and its threads) from graph state. Carries the deleted
+   *  needle's position + incident threads so the parent can push a restore
+   *  (Ctrl+Z) command that puts it back exactly. */
+  onDeleteConcept: (id: string, pos: { x: number; y: number } | null, edges: GraphEdge[]) => void
+  /** The shared undo/redo stack; NeedleGraph pushes its canvas + thread commands. */
+  undo: UndoManager
   ref?: Ref<NeedleGraphHandle>
 }
 
@@ -516,6 +547,14 @@ function createSmoothZoom(cy: cytoscape.Core, container: HTMLElement): SmoothZoo
   }
 }
 
+type XY = { x: number; y: number }
+
+/** Remembered graph viewport (pan + zoom), kept in module scope so it survives
+ *  navigating into a concept and back within the SPA session — a hard refresh
+ *  resets it. Recorded on every pan/zoom, and restored on mount instead of a
+ *  fit, so leaving and re-entering the graph keeps the view you had. */
+let lastViewport: { pan: { x: number; y: number }; zoom: number } | null = null
+
 export default function NeedleGraph({
   graph,
   stickies,
@@ -525,6 +564,8 @@ export default function NeedleGraph({
   onOpen,
   onConnect,
   onDisconnect,
+  onDeleteConcept,
+  undo,
   ref,
 }: NeedleGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -539,6 +580,8 @@ export default function NeedleGraph({
   onConnectRef.current = onConnect
   const onDisconnectRef = useRef(onDisconnect)
   onDisconnectRef.current = onDisconnect
+  const onDeleteConceptRef = useRef(onDeleteConcept)
+  onDeleteConceptRef.current = onDeleteConcept
   // The cy instance is built once from the graph at mount; later prop changes
   // are applied incrementally by the grow-only diff effect below. Stickies and
   // saved positions are mount-time seeds too — afterwards the canvas owns them.
@@ -559,6 +602,7 @@ export default function NeedleGraph({
   const [pending, setPending] = useState<PendingThread | null>(null)
   const pendingRef = useRef<PendingThread | null>(null)
   const [edgeMenu, setEdgeMenu] = useState<EdgeMenu | null>(null)
+  const [deleteMenu, setDeleteMenu] = useState<DeleteMenu | null>(null)
   const [stickyEdit, setStickyEdit] = useState<StickyEditState | null>(null)
   // The canvas owns sticky state after mount: cy holds the hit-boxes, this
   // list drives the HTML underlay, and every mutation patches both.
@@ -687,19 +731,29 @@ export default function NeedleGraph({
     }
   }
 
-  /** Flip a sticky/frame's pinned state, persisting it. */
+  /** Set a sticky/frame's pinned state on the canvas + underlay + backend. */
+  const setPinState = (kind: 'sticky' | 'frame', id: string, pinned: boolean) => {
+    setPinned(kind, id, pinned)
+    if (kind === 'sticky') {
+      patchSticky(id, { fijado: pinned })
+      void api.updateSticky(id, { fijado: pinned }).catch(() => {})
+    } else {
+      patchFrame(id, { fijado: pinned })
+      void api.updateFrame(id, { fijado: pinned }).catch(() => {})
+    }
+  }
+
+  /** Flip a sticky/frame's pinned state, persisting it (+undo). */
   const togglePin = (t: ResizeTarget) => {
     const list = t.kind === 'sticky' ? stickyListRef.current : frameListRef.current
     const current = list.find((e) => e.id === t.id)
     const next = !(current?.fijado ?? false)
-    setPinned(t.kind, t.id, next)
-    if (t.kind === 'sticky') {
-      patchSticky(t.id, { fijado: next })
-      void api.updateSticky(t.id, { fijado: next }).catch(() => {})
-    } else {
-      patchFrame(t.id, { fijado: next })
-      void api.updateFrame(t.id, { fijado: next }).catch(() => {})
-    }
+    setPinState(t.kind, t.id, next)
+    undoRef.current.push({
+      label: next ? 'pin' : 'unpin',
+      undo: () => setPinState(t.kind, t.id, !next),
+      redo: () => setPinState(t.kind, t.id, next),
+    })
   }
 
   /** Pin each arrow's drag handles (endpoints + midpoint mover) in screen px,
@@ -812,6 +866,22 @@ export default function NeedleGraph({
         }
         const save = r.kind === 'sticky' ? api.updateSticky(r.id, patch) : api.updateFrame(r.id, patch)
         void save.catch(() => {})
+        const changed = patch.x !== r.x || patch.y !== r.y || patch.ancho !== r.ancho || patch.alto !== r.alto
+        if (changed && r.kind === 'sticky') {
+          const cur = stickyListRef.current.find((s) => s.id === r.id)
+          if (cur) {
+            const before: Sticky = { ...cur, x: r.x, y: r.y, ancho: r.ancho, alto: r.alto }
+            const after: Sticky = { ...cur, ...patch }
+            undoRef.current.push({ label: 'resize note', undo: () => applySticky(before), redo: () => applySticky(after) })
+          }
+        } else if (changed) {
+          const cur = frameListRef.current.find((m) => m.id === r.id)
+          if (cur) {
+            const before: Marco = { ...cur, x: r.x, y: r.y, ancho: r.ancho, alto: r.alto }
+            const after: Marco = { ...cur, ...patch }
+            undoRef.current.push({ label: 'resize frame', undo: () => applyFrame(before), redo: () => applyFrame(after) })
+          }
+        }
       }
     }
     hideResizeHandleSoon()
@@ -854,7 +924,17 @@ export default function NeedleGraph({
     arrowDragRef.current = null
     if (!d) return
     const f = arrowListRef.current.find((a) => a.id === d.id)
-    if (f) void api.updateArrow(d.id, { x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2 }).catch(() => {})
+    if (!f) return
+    void api.updateArrow(d.id, { x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2 }).catch(() => {})
+    if (d.x1 !== f.x1 || d.y1 !== f.y1 || d.x2 !== f.x2 || d.y2 !== f.y2) {
+      const before: Flecha = { ...f, x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2 }
+      const after: Flecha = { ...f }
+      undoRef.current.push({
+        label: 'move arrow',
+        undo: () => applyArrow(before),
+        redo: () => applyArrow(after),
+      })
+    }
   }
 
   /** Draw a fresh roadmap arrow across the middle of the viewport. */
@@ -876,15 +956,29 @@ export default function NeedleGraph({
       })
       setArrowList((list) => [...list, arrow])
       setSelectedArrow(arrow.id)
+      undoRef.current.push({
+        label: 'add arrow',
+        undo: () => deleteArrowById(arrow.id),
+        redo: () => restoreArrow(arrow),
+      })
     } catch {
       // Arrow creation failing quietly leaves the canvas intact.
     }
   }
 
   const saveArrowEdit = (next: Flecha) => {
+    const before = arrowListRef.current.find((a) => a.id === next.id)
     patchArrow(next.id, { color: next.color, ancho: next.ancho })
     setArrowEdit(null)
     void api.updateArrow(next.id, { color: next.color, ancho: next.ancho }).catch(() => {})
+    if (before && (before.color !== next.color || before.ancho !== next.ancho)) {
+      const after: Flecha = { ...before, color: next.color, ancho: next.ancho }
+      undoRef.current.push({
+        label: 'edit arrow',
+        undo: () => applyArrow(before),
+        redo: () => applyArrow(after),
+      })
+    }
   }
 
   const deleteArrowById = (id: string) => {
@@ -899,7 +993,7 @@ export default function NeedleGraph({
   const deleteArrowEdit = () => {
     const edit = arrowEdit
     setArrowEdit(null)
-    if (edit) deleteArrowById(edit.id)
+    if (edit) userDeleteArrow(edit.id)
   }
 
   // --- Frame generator: drag a rectangle on the canvas to place a frame -------
@@ -981,6 +1075,11 @@ export default function NeedleGraph({
         classes: 'frame',
       })
       setFrameList((list) => [...list, frame])
+      undoRef.current.push({
+        label: 'add frame',
+        undo: () => removeFrameById(frame.id),
+        redo: () => restoreFrame(frame),
+      })
       setFrameEdit({ id: frame.id, nombre: frame.nombre, color: frame.color })
     } catch {
       // Frame creation failing quietly leaves the canvas intact.
@@ -988,9 +1087,18 @@ export default function NeedleGraph({
   }
 
   const saveFrameEdit = (next: FrameEditState) => {
+    const before = frameListRef.current.find((m) => m.id === next.id)
     patchFrame(next.id, { nombre: next.nombre, color: next.color })
     setFrameEdit(null)
     void api.updateFrame(next.id, { nombre: next.nombre, color: next.color }).catch(() => {})
+    if (before && (before.nombre !== next.nombre || before.color !== next.color)) {
+      const after: Marco = { ...before, nombre: next.nombre, color: next.color }
+      undoRef.current.push({
+        label: 'edit frame',
+        undo: () => applyFrame(before),
+        redo: () => applyFrame(after),
+      })
+    }
   }
 
   const deleteFrameNode = (node: cytoscape.NodeSingular) => {
@@ -1009,16 +1117,14 @@ export default function NeedleGraph({
     const edit = frameEdit
     setFrameEdit(null)
     if (!edit) return
-    const cy = cyRef.current
-    if (cy) {
-      const node = cy.getElementById(frameCyId(edit.id))
-      if (!node.empty()) {
-        deleteFrameNode(node as cytoscape.NodeSingular)
-        return
-      }
-    }
-    setFrameList((list) => list.filter((m) => m.id !== edit.id))
-    void api.deleteFrame(edit.id).catch(() => {})
+    const snap = frameListRef.current.find((m) => m.id === edit.id)
+    removeFrameById(edit.id)
+    if (snap)
+      undoRef.current.push({
+        label: 'delete frame',
+        undo: () => restoreFrame(snap),
+        redo: () => removeFrameById(edit.id),
+      })
   }
 
   /** Debounced full-position save: the loom remembers where every needle sits. */
@@ -1037,7 +1143,250 @@ export default function NeedleGraph({
     }, 600)
   }
 
-  /** Remove a thread from the canvas and hand the removal to the parent. */
+  // ---- Undo/redo plumbing ---------------------------------------------------
+  // Each user action pushes a Command to the shared stack (undoRef.current); its
+  // undo()/redo() reuse the helpers below, so undo and redo are just replays that
+  // also re-persist. Ids survive delete→restore (createSticky/Frame/Arrow honour
+  // a given id, restoreConcept re-uses the folder), so commands referencing an id
+  // stay valid across the whole stack.
+  const undoRef = useRef(undo)
+  undoRef.current = undo
+
+  /** Add a cy thread edge for a GraphEdge, if both needles exist and it's absent. */
+  const addCyEdge = (edge: GraphEdge) => {
+    const cy = cyRef.current
+    if (!cy || cy.destroyed()) return
+    if (cy.getElementById(edge.de).empty() || cy.getElementById(edge.a).empty()) return
+    const dup = cy
+      .edges(`[source = "${edge.de}"][target = "${edge.a}"]`)
+      .filter((e) => e.data('tipo') === edge.tipo)
+    if (dup.nonempty()) return
+    cy.add({ group: 'edges', data: { source: edge.de, target: edge.a, tipo: edge.tipo } })
+  }
+  /** Remove the cy thread edge matching a GraphEdge. */
+  const removeCyEdge = (edge: GraphEdge) => {
+    const cy = cyRef.current
+    if (!cy || cy.destroyed()) return
+    cy.edges(`[source = "${edge.de}"][target = "${edge.a}"]`)
+      .filter((e) => e.data('tipo') === edge.tipo)
+      .remove()
+  }
+
+  // -- Sticky restore/remove/apply (used by the sticky commands) --
+  const restoreSticky = async (s: Sticky) => {
+    try {
+      await api.createSticky({ ...s }) // id honoured server-side
+    } catch {
+      return
+    }
+    const cy = cyRef.current
+    if (cy && !cy.destroyed() && cy.getElementById(stickyCyId(s.id)).empty()) {
+      cy.add({ group: 'nodes', data: stickyNodeData(s), position: { x: s.x, y: s.y }, classes: 'sticky' })
+    }
+    setStickyList((list) => (list.some((x) => x.id === s.id) ? list : [...list, s]))
+    if (s.fijado) setPinned('sticky', s.id, true)
+  }
+  const removeStickyById = (id: string) => {
+    const cy = cyRef.current
+    const node = cy && !cy.destroyed() ? cy.getElementById(stickyCyId(id)) : null
+    if (node && !node.empty()) {
+      deleteStickyNode(node as cytoscape.NodeSingular)
+    } else {
+      setStickyList((list) => list.filter((s) => s.id !== id))
+      void api.deleteSticky(id).catch(() => {})
+    }
+  }
+  /** Apply a full sticky snapshot (position/size/text/colour/pin) + persist. */
+  const applySticky = (s: Sticky) => {
+    const cy = cyRef.current
+    if (cy && !cy.destroyed()) {
+      const node = cy.getElementById(stickyCyId(s.id))
+      if (!node.empty()) {
+        node.data({ ancho: s.ancho, alto: s.alto, titulo: s.titulo, texto: s.texto, color: s.color })
+        ;(node as cytoscape.NodeSingular).position({ x: s.x, y: s.y })
+      }
+    }
+    patchSticky(s.id, s)
+    setPinned('sticky', s.id, s.fijado === true)
+    void api
+      .updateSticky(s.id, {
+        titulo: s.titulo,
+        texto: s.texto,
+        color: s.color,
+        x: s.x,
+        y: s.y,
+        ancho: s.ancho,
+        alto: s.alto,
+        fijado: s.fijado === true,
+      })
+      .catch(() => {})
+    syncResizeHandle()
+    syncPinButton()
+  }
+
+  // -- Frame restore/remove/apply --
+  const restoreFrame = async (m: Marco) => {
+    try {
+      await api.createFrame({ ...m })
+    } catch {
+      return
+    }
+    const cy = cyRef.current
+    if (cy && !cy.destroyed() && cy.getElementById(frameCyId(m.id)).empty()) {
+      cy.add({ group: 'nodes', data: frameNodeData(m), position: { x: m.x, y: m.y }, classes: 'frame' })
+    }
+    setFrameList((list) => (list.some((x) => x.id === m.id) ? list : [...list, m]))
+    if (m.fijado) setPinned('frame', m.id, true)
+  }
+  const removeFrameById = (id: string) => {
+    const cy = cyRef.current
+    const node = cy && !cy.destroyed() ? cy.getElementById(frameCyId(id)) : null
+    if (node && !node.empty()) {
+      deleteFrameNode(node as cytoscape.NodeSingular)
+    } else {
+      setFrameList((list) => list.filter((m) => m.id !== id))
+      void api.deleteFrame(id).catch(() => {})
+    }
+  }
+  const applyFrame = (m: Marco) => {
+    const cy = cyRef.current
+    if (cy && !cy.destroyed()) {
+      const node = cy.getElementById(frameCyId(m.id))
+      if (!node.empty()) {
+        node.data({ ancho: m.ancho, alto: m.alto, nombre: m.nombre, color: m.color })
+        ;(node as cytoscape.NodeSingular).position({ x: m.x, y: m.y })
+      }
+    }
+    patchFrame(m.id, m)
+    setPinned('frame', m.id, m.fijado === true)
+    void api
+      .updateFrame(m.id, {
+        nombre: m.nombre,
+        color: m.color,
+        x: m.x,
+        y: m.y,
+        ancho: m.ancho,
+        alto: m.alto,
+        fijado: m.fijado === true,
+      })
+      .catch(() => {})
+    syncResizeHandle()
+    syncPinButton()
+  }
+
+  // -- Arrow restore/apply (deleteArrowById already removes) --
+  const restoreArrow = async (f: Flecha) => {
+    try {
+      await api.createArrow({ ...f })
+    } catch {
+      return
+    }
+    setArrowList((list) => (list.some((x) => x.id === f.id) ? list : [...list, f]))
+  }
+  const applyArrow = (f: Flecha) => {
+    patchArrow(f.id, f)
+    void api
+      .updateArrow(f.id, { x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2, color: f.color, ancho: f.ancho })
+      .catch(() => {})
+  }
+
+  // -- User-facing deleters: capture the object, remove it, push a restore cmd --
+  const userDeleteStickyNode = (node: cytoscape.NodeSingular) => {
+    const id = node.data('stickyId') as string
+    const snap = stickyListRef.current.find((s) => s.id === id)
+    deleteStickyNode(node)
+    if (snap) undoRef.current.push({ label: 'delete note', undo: () => restoreSticky(snap), redo: () => removeStickyById(id) })
+  }
+  const userDeleteFrameNode = (node: cytoscape.NodeSingular) => {
+    const id = node.data('frameId') as string
+    const snap = frameListRef.current.find((m) => m.id === id)
+    deleteFrameNode(node)
+    if (snap) undoRef.current.push({ label: 'delete frame', undo: () => restoreFrame(snap), redo: () => removeFrameById(id) })
+  }
+  const userDeleteArrow = (id: string) => {
+    const snap = arrowListRef.current.find((a) => a.id === id)
+    deleteArrowById(id)
+    if (snap) undoRef.current.push({ label: 'delete arrow', undo: () => restoreArrow(snap), redo: () => deleteArrowById(id) })
+  }
+
+  // -- Move: snapshot every draggable position on grab, diff on drop, so a single
+  //    command covers one needle, a box-selected group, or a frame towing its
+  //    contents. The action itself already persisted; this only records undo. --
+  type PosMap = { needles: Map<string, XY>; stickies: Map<string, XY>; frames: Map<string, XY> }
+  const dragSnapshotRef = useRef<PosMap | null>(null)
+  const snapshotPositions = (): PosMap => {
+    const cy = cyRef.current
+    const snap: PosMap = { needles: new Map(), stickies: new Map(), frames: new Map() }
+    if (!cy || cy.destroyed()) return snap
+    cy.nodes().forEach((n) => {
+      if (n.hasClass('eh-ghost-node')) return
+      const p = n.position()
+      const xy = { x: Math.round(p.x), y: Math.round(p.y) }
+      if (n.hasClass('sticky')) snap.stickies.set(n.data('stickyId') as string, xy)
+      else if (n.hasClass('frame')) snap.frames.set(n.data('frameId') as string, xy)
+      else snap.needles.set(n.id(), xy)
+    })
+    return snap
+  }
+  const applyPositions = (moved: {
+    needles: { id: string; x: number; y: number }[]
+    stickies: { id: string; x: number; y: number }[]
+    frames: { id: string; x: number; y: number }[]
+  }) => {
+    const cy = cyRef.current
+    if (cy && !cy.destroyed()) {
+      for (const m of moved.needles) {
+        const n = cy.getElementById(m.id)
+        if (!n.empty()) (n as cytoscape.NodeSingular).position({ x: m.x, y: m.y })
+      }
+      for (const m of moved.stickies) {
+        const n = cy.getElementById(stickyCyId(m.id))
+        if (!n.empty()) (n as cytoscape.NodeSingular).position({ x: m.x, y: m.y })
+      }
+      for (const m of moved.frames) {
+        const n = cy.getElementById(frameCyId(m.id))
+        if (!n.empty()) (n as cytoscape.NodeSingular).position({ x: m.x, y: m.y })
+      }
+    }
+    if (moved.needles.length > 0) persistLayoutSoon()
+    for (const m of moved.stickies) void api.updateSticky(m.id, { x: m.x, y: m.y }).catch(() => {})
+    for (const m of moved.frames) void api.updateFrame(m.id, { x: m.x, y: m.y }).catch(() => {})
+    syncResizeHandle()
+    syncPinButton()
+  }
+  /** After a drag settles, diff the grab snapshot and push one move command. */
+  const finalizeMove = () => {
+    const before = dragSnapshotRef.current
+    dragSnapshotRef.current = null
+    const cy = cyRef.current
+    if (!before || !cy || cy.destroyed()) return
+    const now = snapshotPositions()
+    const diff = (b: Map<string, XY>, a: Map<string, XY>) => {
+      const from: { id: string; x: number; y: number }[] = []
+      const to: { id: string; x: number; y: number }[] = []
+      a.forEach((pa, id) => {
+        const pb = b.get(id)
+        if (pb && (pb.x !== pa.x || pb.y !== pa.y)) {
+          from.push({ id, x: pb.x, y: pb.y })
+          to.push({ id, x: pa.x, y: pa.y })
+        }
+      })
+      return { from, to }
+    }
+    const n = diff(before.needles, now.needles)
+    const s = diff(before.stickies, now.stickies)
+    const f = diff(before.frames, now.frames)
+    if (n.from.length + s.from.length + f.from.length === 0) return
+    const fromSnap = { needles: n.from, stickies: s.from, frames: f.from }
+    const toSnap = { needles: n.to, stickies: s.to, frames: f.to }
+    undoRef.current.push({
+      label: 'move',
+      undo: () => applyPositions(fromSnap),
+      redo: () => applyPositions(toSnap),
+    })
+  }
+
+  /** Remove a thread from the canvas and hand the removal to the parent (+undo). */
   const cutEdge = (edge: cytoscape.EdgeSingular) => {
     const arista: GraphEdge = {
       de: edge.source().id(),
@@ -1046,6 +1395,17 @@ export default function NeedleGraph({
     }
     edge.remove()
     onDisconnectRef.current(arista)
+    undoRef.current.push({
+      label: 'cut thread',
+      undo: () => {
+        addCyEdge(arista)
+        onConnectRef.current(arista)
+      },
+      redo: () => {
+        removeCyEdge(arista)
+        onDisconnectRef.current(arista)
+      },
+    })
   }
 
   const cutEdgeFromMenu = () => {
@@ -1055,6 +1415,28 @@ export default function NeedleGraph({
     if (!menu || !cy) return
     const edge = cy.getElementById(menu.edgeId)
     if (!edge.empty()) cutEdge(edge as cytoscape.EdgeSingular)
+  }
+
+  /** Confirm the delete popover: remove the needle (cytoscape drops its incident
+   *  threads too) and hand the removal to the parent to persist + lift out of state. */
+  const deleteConceptFromMenu = () => {
+    const menu = deleteMenu
+    const cy = cyRef.current
+    setDeleteMenu(null)
+    if (!menu || !cy) return
+    const node = cy.getElementById(menu.id)
+    const pos = node.empty()
+      ? null
+      : { x: Math.round(node.position().x), y: Math.round(node.position().y) }
+    const edges: GraphEdge[] = node.empty()
+      ? []
+      : node.connectedEdges().map((e) => ({
+          de: e.source().id(),
+          a: e.target().id(),
+          tipo: e.data('tipo') as RelationType,
+        }))
+    node.remove()
+    onDeleteConceptRef.current(menu.id, pos, edges)
   }
 
   const deleteStickyNode = (node: cytoscape.NodeSingular) => {
@@ -1090,6 +1472,11 @@ export default function NeedleGraph({
         classes: 'sticky',
       })
       setStickyList((list) => [...list, sticky])
+      undoRef.current.push({
+        label: 'add note',
+        undo: () => removeStickyById(sticky.id),
+        redo: () => restoreSticky(sticky),
+      })
       setStickyEdit({
         id: sticky.id,
         titulo: sticky.titulo,
@@ -1102,27 +1489,37 @@ export default function NeedleGraph({
   }
 
   const saveStickyEdit = (next: StickyEditState) => {
+    const before = stickyListRef.current.find((s) => s.id === next.id)
     patchSticky(next.id, { titulo: next.titulo, texto: next.texto, color: next.color })
     setStickyEdit(null)
     void api
       .updateSticky(next.id, { titulo: next.titulo, texto: next.texto, color: next.color })
       .catch(() => {})
+    if (
+      before &&
+      (before.titulo !== next.titulo || before.texto !== next.texto || before.color !== next.color)
+    ) {
+      const after: Sticky = { ...before, titulo: next.titulo, texto: next.texto, color: next.color }
+      undoRef.current.push({
+        label: 'edit note',
+        undo: () => applySticky(before),
+        redo: () => applySticky(after),
+      })
+    }
   }
 
   const deleteStickyEdit = () => {
     const edit = stickyEdit
     setStickyEdit(null)
     if (!edit) return
-    const cy = cyRef.current
-    if (cy) {
-      const node = cy.getElementById(stickyCyId(edit.id))
-      if (!node.empty()) {
-        deleteStickyNode(node as cytoscape.NodeSingular)
-        return
-      }
-    }
-    setStickyList((list) => list.filter((s) => s.id !== edit.id))
-    void api.deleteSticky(edit.id).catch(() => {})
+    const snap = stickyListRef.current.find((s) => s.id === edit.id)
+    removeStickyById(edit.id)
+    if (snap)
+      undoRef.current.push({
+        label: 'delete note',
+        undo: () => restoreSticky(snap),
+        redo: () => removeStickyById(edit.id),
+      })
   }
 
   /** Remove an undecided thread (Esc, background tap, pan, or a new draw). */
@@ -1149,7 +1546,19 @@ export default function NeedleGraph({
     }
     pendingRef.current = null
     setPending(null)
-    onConnectRef.current({ de: p.de, a: p.a, tipo })
+    const arista: GraphEdge = { de: p.de, a: p.a, tipo }
+    onConnectRef.current(arista)
+    undoRef.current.push({
+      label: 'draw thread',
+      undo: () => {
+        removeCyEdge(arista)
+        onDisconnectRef.current(arista)
+      },
+      redo: () => {
+        addCyEdge(arista)
+        onConnectRef.current(arista)
+      },
+    })
   }
 
   const toggleDrawMode = () => {
@@ -1184,6 +1593,26 @@ export default function NeedleGraph({
     zoomIn: () => smoothRef.current?.zoomBy(ZOOM_STEP),
     zoomOut: () => smoothRef.current?.zoomBy(1 / ZOOM_STEP),
     fit: fitView,
+    // Re-sync cy on concept undo/redo (state is GraphScreen's; cy is ours).
+    addNeedle: (node, pos, edges) => {
+      const cy = cyRef.current
+      if (!cy || cy.destroyed()) return
+      if (cy.getElementById(node.id).empty()) {
+        const ext = cy.extent()
+        cy.add({
+          group: 'nodes',
+          data: { id: node.id, nombre: node.nombre, resumen: node.resumen },
+          position: pos ?? { x: (ext.x1 + ext.x2) / 2, y: (ext.y1 + ext.y2) / 2 },
+        })
+      }
+      for (const e of edges) addCyEdge(e)
+    },
+    removeNeedle: (id) => {
+      const cy = cyRef.current
+      if (!cy || cy.destroyed()) return
+      const node = cy.getElementById(id)
+      if (!node.empty()) node.remove()
+    },
     centerOn: (id: string) => {
       const cy = cyRef.current
       if (!cy) return
@@ -1213,6 +1642,11 @@ export default function NeedleGraph({
     const container = containerRef.current
     if (!container) return
     const initial = initialGraph.current
+
+    // Right-clicking a needle opens our delete popover (the cxttap handler
+    // below), so suppress the browser's native context menu over the canvas.
+    const onContextMenu = (e: Event) => e.preventDefault()
+    container.addEventListener('contextmenu', onContextMenu)
 
     const saved = initialPositions.current
     const cy = cytoscape({
@@ -1283,7 +1717,14 @@ export default function NeedleGraph({
         })
       })
     }
-    cy.fit(cy.elements(), FIT_PADDING)
+    // Restore the viewport from the last visit (session memory) instead of
+    // re-fitting, so leaving the graph for a concept and coming back keeps the
+    // same pan/zoom. First load ever (no memory) fits to frame the fresh weave.
+    if (lastViewport) {
+      cy.viewport({ zoom: lastViewport.zoom, pan: lastViewport.pan })
+    } else {
+      cy.fit(cy.elements(), FIT_PADDING)
+    }
     if (needles.length > 0) persistLayoutSoon()
 
     // The HTML underlay tracks the viewport; sticky hit-boxes tow their notes.
@@ -1366,6 +1807,7 @@ export default function NeedleGraph({
         patchSticky(sid, { x: sx, y: sy })
         void api.updateSticky(sid, { x: sx, y: sy }).catch(() => {})
       })
+      finalizeMove()
     })
     syncUnderlay()
 
@@ -1421,10 +1863,27 @@ export default function NeedleGraph({
       if (event.target.data('sticky') || event.target.data('frame')) return
       onOpenRef.current(event.target.id())
     })
+    // Right-click (or long-press) a needle → a delete-confirm popover. Stickies
+    // and frames have their own controls; draw mode is for drawing, not deleting.
+    cy.on('cxttap', 'node', (event) => {
+      if (drawModeRef.current) return
+      const node = event.target as cytoscape.NodeSingular
+      if (node.data('sticky') || node.data('frame')) return
+      cancelPending()
+      setEdgeMenu(null)
+      const pos = node.renderedPosition()
+      setDeleteMenu({
+        id: node.id(),
+        nombre: node.data('nombre') as string,
+        x: Math.min(Math.max(pos.x, 130), Math.max(container.clientWidth - 130, 130)),
+        y: Math.min(Math.max(pos.y, 60), Math.max(container.clientHeight - 150, 60)),
+      })
+    })
     cy.on('tap', (event) => {
       if (event.target === cy) {
         cancelPending() // background tap discards the popovers
         setEdgeMenu(null)
+        setDeleteMenu(null)
         setSelectedArrow(null)
       }
     })
@@ -1462,7 +1921,10 @@ export default function NeedleGraph({
     // Dropped needles re-save the whole layout; a dropped sticky saves itself
     // (dragfreeon covers elements dragged along inside a box selection). Frames
     // persist through their own grab/drag/free handlers above, so exclude them.
-    cy.on('dragfree dragfreeon', 'node[!sticky][!frame]', () => persistLayoutSoon())
+    cy.on('dragfree dragfreeon', 'node[!sticky][!frame]', () => {
+      persistLayoutSoon()
+      finalizeMove()
+    })
     cy.on('dragfree dragfreeon', 'node.sticky', (event) => {
       const node = event.target as cytoscape.NodeSingular
       const p = node.position()
@@ -1470,6 +1932,7 @@ export default function NeedleGraph({
       const y = Math.round(p.y)
       patchSticky(node.data('stickyId') as string, { x, y })
       void api.updateSticky(node.data('stickyId') as string, { x, y }).catch(() => {})
+      finalizeMove()
     })
 
     cy.on('mouseover', 'node', (event) => {
@@ -1515,10 +1978,17 @@ export default function NeedleGraph({
       setHover(null)
       cancelPending() // its anchor point is stale once the viewport moves
       setEdgeMenu(null)
+      setDeleteMenu(null)
+      // Remember the viewport so returning from a concept restores this view.
+      lastViewport = { pan: cy.pan(), zoom: cy.zoom() }
     })
     cy.on('grab', 'node', () => {
       setHover(null)
       setEdgeMenu(null)
+      setDeleteMenu(null)
+      // Snapshot every draggable position at the start of a drag, so the drop
+      // can record one undo command covering the whole move (group / frame tow).
+      dragSnapshotRef.current = snapshotPositions()
     })
 
     if (!prefersReducedMotion() && cy.edges().length > 0) tightenThreads(cy)
@@ -1532,6 +2002,7 @@ export default function NeedleGraph({
       window.clearTimeout(foundTimeout.current)
       window.clearTimeout(layoutTimer.current)
       window.clearTimeout(hideHandleTimer.current)
+      container.removeEventListener('contextmenu', onContextMenu)
       eh.destroy()
       ehRef.current = null
       smoothZoom.destroy()
@@ -1580,6 +2051,7 @@ export default function NeedleGraph({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setEdgeMenu(null)
+        setDeleteMenu(null)
         setSelectedArrow(null)
         if (pendingRef.current) cancelPending()
         else if (drawModeRef.current) toggleDrawMode()
@@ -1600,9 +2072,9 @@ export default function NeedleGraph({
         const edges = cy.edges(':selected').filter((e) => !e.hasClass('pending-thread'))
         if (edges.length > 0) setEdgeMenu(null)
         edges.forEach((e) => cutEdge(e))
-        cy.nodes('.sticky:selected').forEach((n) => deleteStickyNode(n))
-        cy.nodes('.frame:selected').forEach((n) => deleteFrameNode(n))
-        if (selectedArrowRef.current) deleteArrowById(selectedArrowRef.current)
+        cy.nodes('.sticky:selected').forEach((n) => userDeleteStickyNode(n as cytoscape.NodeSingular))
+        cy.nodes('.frame:selected').forEach((n) => userDeleteFrameNode(n as cytoscape.NodeSingular))
+        if (selectedArrowRef.current) userDeleteArrow(selectedArrowRef.current)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -1884,6 +2356,45 @@ export default function NeedleGraph({
               <p className="mt-2 text-[11px] leading-snug text-muted">
                 Del cuts every selected thread. Esc closes.
               </p>
+            </motion.div>
+          </div>
+        </div>
+      )}
+
+      {deleteMenu && (
+        <div className="absolute z-20" style={{ left: deleteMenu.x, top: deleteMenu.y }}>
+          <div className="-translate-x-1/2 translate-y-2">
+            <motion.div
+              initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+              className="w-60 rounded-lg border border-hairline bg-linen-bright p-3"
+              role="dialog"
+              aria-label="Delete concept"
+            >
+              <p className="text-[13px] font-medium text-ink">
+                Delete <span className="font-display">“{deleteMenu.nombre}”</span>?
+              </p>
+              <p className="mt-1 text-[11px] leading-snug text-muted">
+                Removes the concept and all its content. This can't be undone.
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteMenu(null)}
+                  className="inline-flex flex-1 items-center justify-center rounded-md border border-hairline bg-linen px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-linen-raw hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteConceptFromMenu}
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-burgundy px-2.5 py-1.5 text-xs font-medium text-linen-bright transition-colors hover:bg-burgundy-deep active:scale-[0.98]"
+                >
+                  <Trash size={13} weight="bold" aria-hidden />
+                  Delete
+                </button>
+              </div>
             </motion.div>
           </div>
         </div>

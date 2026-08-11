@@ -98,6 +98,10 @@ export const httpApi: TelarApi = {
   removeRelation: (id, target) =>
     reqVoid(`/api/concept/${enc(id)}/relations/${enc(target)}`, { method: 'DELETE' }),
 
+  deleteConcept: (id) => reqVoid(`/api/concept/${enc(id)}`, { method: 'DELETE' }),
+
+  restoreConcept: (id) => req<GraphNode>(`/api/concept/${enc(id)}/restore`, { method: 'POST' }),
+
   getStickies: async () => (await req<{ stickies: Sticky[] }>('/api/stickies')).stickies,
 
   createSticky: (data) => req<Sticky>('/api/stickies', jsonBody('POST', data)),

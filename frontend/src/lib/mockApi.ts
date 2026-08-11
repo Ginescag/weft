@@ -37,6 +37,8 @@ interface Overlay {
   errors: Record<string, { fuente: ErrorSource; itemId: string; fecha: string; nota?: string }[]>
   /** fixture relations the user cut: dependent concept -> removed target ids */
   removedRelations: Record<string, string[]>
+  /** fixture concepts the user deleted (read-only fixtures are masked, not erased) */
+  removedConcepts: string[]
   /** canvas sticky notes (the real backend keeps .telar/stickies.json) */
   stickies: Sticky[]
   /** roadmap arrows (the real backend keeps .telar/arrows.json) */
@@ -59,6 +61,7 @@ function loadOverlay(): Overlay {
         relations: parsed.relations ?? {},
         errors: parsed.errors ?? {},
         removedRelations: parsed.removedRelations ?? {},
+        removedConcepts: parsed.removedConcepts ?? [],
         // Notes saved before the title/body split read back with an empty titulo.
         stickies: (parsed.stickies ?? []).map((s: Sticky) => ({
           ...s,
@@ -79,6 +82,7 @@ function loadOverlay(): Overlay {
     relations: {},
     errors: {},
     removedRelations: {},
+    removedConcepts: [],
     stickies: [],
     arrows: [],
     frames: [],
@@ -110,11 +114,22 @@ function pinnedConcept(id: string, meta: { nombre: string; resumen: string }): C
 }
 
 function conceptOrThrow(id: string, overlay: Overlay = loadOverlay()): ConceptFixture {
+  if (overlay.removedConcepts.includes(id)) throw new Error(`Unknown concept: ${id}`)
   const fixture = concepts[id]
   if (fixture) return fixture
   const pinned = overlay.concepts[id]
   if (!pinned) throw new Error(`Unknown concept: ${id}`)
   return pinnedConcept(id, pinned)
+}
+
+/** Pick a canvas-item id: honour a free caller-supplied one (Ctrl+Z restore),
+ *  else the next free `<prefix><n>` — mirrors the backend's pickId. */
+function mockId(prefix: string, used: Set<string>, count: number, preferred?: string): string {
+  if (typeof preferred === 'string' && preferred && !used.has(preferred)) return preferred
+  let n = count + 1
+  let id = `${prefix}${n}`
+  while (used.has(id)) id = `${prefix}${++n}`
+  return id
 }
 
 function slugify(title: string, fallback = 'note'): string {
@@ -131,21 +146,24 @@ export const mockApi: TelarApi = {
   async getGraph(): Promise<Graph> {
     await wait()
     const overlay = loadOverlay()
+    const removed = new Set(overlay.removedConcepts)
     const all = [
       ...Object.values(concepts),
       ...Object.entries(overlay.concepts).map(([id, meta]) => pinnedConcept(id, meta)),
-    ]
+    ].filter((c) => !removed.has(c.id))
+    const nodeIds = new Set(all.map((c) => c.id))
     const cut = (a: string, de: string) => overlay.removedRelations[a]?.includes(de) ?? false
     return {
       nodos: all.map(({ id, nombre, ruta, resumen }) => ({ id, nombre, ruta, resumen })),
       // A concept's `relaciones` list its prerequisites, so edges point from
-      // the prerequisite to the concept (de: requirement, a: dependent).
+      // the prerequisite to the concept (de: requirement, a: dependent). Drop
+      // any edge touching a deleted concept so nothing dangles.
       aristas: [
         ...all.flatMap((c) => c.relaciones.map((r) => ({ de: r.id, a: c.id, tipo: r.tipo }))),
         ...Object.entries(overlay.relations).flatMap(([a, rels]) =>
           rels.map((r) => ({ de: r.id, a, tipo: r.tipo })),
         ),
-      ].filter((e) => !cut(e.a, e.de)),
+      ].filter((e) => nodeIds.has(e.de) && nodeIds.has(e.a) && !cut(e.a, e.de)),
     }
   },
 
@@ -283,18 +301,39 @@ export const mockApi: TelarApi = {
     saveOverlay(overlay)
   },
 
+  async deleteConcept(id: string): Promise<void> {
+    await wait()
+    const overlay = loadOverlay()
+    conceptOrThrow(id, overlay) // 404 if unknown
+    // Mask it (works for both fixtures and user-created concepts) rather than
+    // erasing it, so restoreConcept (Ctrl+Z) can un-mask it with its relations
+    // and position intact — getGraph already filters out masked concepts and any
+    // edge touching them, so the concept and its threads disappear together.
+    if (!overlay.removedConcepts.includes(id)) overlay.removedConcepts.push(id)
+    saveOverlay(overlay)
+  },
+
+  async restoreConcept(id: string): Promise<GraphNode> {
+    await wait()
+    const overlay = loadOverlay()
+    const i = overlay.removedConcepts.indexOf(id)
+    if (i === -1) throw new Error(`Nothing to restore: ${id}`)
+    overlay.removedConcepts.splice(i, 1)
+    saveOverlay(overlay)
+    const c = conceptOrThrow(id, overlay)
+    return { id: c.id, nombre: c.nombre, ruta: c.ruta, resumen: c.resumen }
+  },
+
   async getStickies(): Promise<Sticky[]> {
     await wait()
     return loadOverlay().stickies
   },
 
-  async createSticky(data: Omit<Sticky, 'id'>): Promise<Sticky> {
+  async createSticky(data: Omit<Sticky, 'id'> & { id?: string }): Promise<Sticky> {
     await wait()
     const overlay = loadOverlay()
     const used = new Set(overlay.stickies.map((s) => s.id))
-    let n = overlay.stickies.length + 1
-    let id = `s${n}`
-    while (used.has(id)) id = `s${++n}`
+    const id = mockId('s', used, overlay.stickies.length, data.id)
     const sticky: Sticky = { ...data, id }
     overlay.stickies = [...overlay.stickies, sticky]
     saveOverlay(overlay)
@@ -324,13 +363,11 @@ export const mockApi: TelarApi = {
     return loadOverlay().arrows
   },
 
-  async createArrow(data: Omit<Flecha, 'id'>): Promise<Flecha> {
+  async createArrow(data: Omit<Flecha, 'id'> & { id?: string }): Promise<Flecha> {
     await wait()
     const overlay = loadOverlay()
     const used = new Set(overlay.arrows.map((a) => a.id))
-    let n = overlay.arrows.length + 1
-    let id = `a${n}`
-    while (used.has(id)) id = `a${++n}`
+    const id = mockId('a', used, overlay.arrows.length, data.id)
     const arrow: Flecha = { ...data, id }
     overlay.arrows = [...overlay.arrows, arrow]
     saveOverlay(overlay)
@@ -380,13 +417,11 @@ export const mockApi: TelarApi = {
     return rects.map(({ m, miembros }) => ({ ...m, miembros: miembros.sort() }))
   },
 
-  async createFrame(data: Omit<Marco, 'id'>): Promise<Marco> {
+  async createFrame(data: Omit<Marco, 'id'> & { id?: string }): Promise<Marco> {
     await wait()
     const overlay = loadOverlay()
     const used = new Set(overlay.frames.map((m) => m.id))
-    let n = overlay.frames.length + 1
-    let id = `f${n}`
-    while (used.has(id)) id = `f${++n}`
+    const id = mockId('f', used, overlay.frames.length, data.id)
     const frame: Marco = { ...data, id }
     overlay.frames = [...overlay.frames, frame]
     saveOverlay(overlay)
