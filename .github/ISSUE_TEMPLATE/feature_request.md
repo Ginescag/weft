@@ -1,12 +1,12 @@
 ---
 name: Feature request
-about: Suggest an idea for Telar
+about: Suggest an idea for Weft
 title: "[feat] "
 labels: enhancement
 ---
 
 **The problem / motivation**
-What are you trying to do that Telar makes hard today?
+What are you trying to do that Weft makes hard today?
 
 **Proposed solution**
 What would you like to happen? If it touches the UI, keep in mind the

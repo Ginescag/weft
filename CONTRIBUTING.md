@@ -1,6 +1,6 @@
-# Contributing to Telar
+# Contributing to Weft
 
-Thanks for your interest in Telar! This guide covers how to set up the project,
+Thanks for your interest in Weft! This guide covers how to set up the project,
 the conventions we follow, and how to send a change. By participating you agree to
 our [Code of Conduct](./CODE_OF_CONDUCT.md).
 
@@ -17,8 +17,8 @@ agree on the approach.
 
 ```bash
 # 1. Fork on GitHub, then clone your fork
-git clone https://github.com/<you>/telar.git
-cd telar
+git clone https://github.com/<you>/weft.git
+cd weft
 
 # 2. Install dependencies (see the note below if npm install fails with a TLS error)
 npm install
@@ -68,17 +68,17 @@ instance for scripted checks).
 ```
 frontend/   Vite + React + TS — screens/, components/, lib/
 server/     Hono backend + MCP server
-  src/master.ts   the filesystem layer — ALL reads/writes to TELAR-MASTER/ go here
+  src/master.ts   the filesystem layer — ALL reads/writes to WEFT-MASTER/ go here
   src/api.ts      thin HTTP routes
   src/mcp.ts      the MCP server (tools, resources, prompts)
-  src/graph.ts    regenerates the derived .telar/graph.json
-bin/telar.js       CLI entry
+  src/graph.ts    regenerates the derived .weft/graph.json
+bin/weft.js        CLI entry
 examples/          starter-master/ (the seed)
 IA-DOCS/           internal Spanish design docs (read these for deep work)
 ```
 
 For the *why* behind the architecture, read
-[`IA-DOCS/`](./IA-DOCS/README.md) — the design spec (`TELAR_PLAN.md`), the backend
+[`IA-DOCS/`](./IA-DOCS/README.md) — the design spec (`WEFT_PLAN.md`), the backend
 plan (`BACKEND_PLAN.md`) and the MCP guide (`MCP.md`).
 
 ## Conventions (please follow)
@@ -86,7 +86,7 @@ plan (`BACKEND_PLAN.md`) and the MCP guide (`MCP.md`).
 - **Language:** code, UI strings, comments and new docs are in **English**. The
   **on-disk data keys are Spanish** (`nombre`, `resumen`, `relaciones`, `nodos`,
   `aristas`, `errores`, `posiciones`, …) — match them exactly when reading/writing
-  files under `TELAR-MASTER/`. README/HOWTO are bilingual.
+  files under `WEFT-MASTER/`. README/HOWTO are bilingual.
 - **The filesystem is the source of truth.** No database. Every write goes through
   `server/src/master.ts` (atomic, validated) and lands as `.md`/`.json`. If the
   server dies, everything survives on disk.
@@ -110,10 +110,10 @@ plan (`BACKEND_PLAN.md`) and the MCP guide (`MCP.md`).
 ## A note on packaging
 
 The repo ships the built `dist/` and the bundled skill
-(`.claude/skills/telar/`) via the `files` allowlist in the root `package.json`,
-with `prepack` building first. `dist/` and `TELAR-MASTER/` are git-ignored. If you
+(`.claude/skills/weft/`) via the `files` allowlist in the root `package.json`,
+with `prepack` building first. `dist/` and `WEFT-MASTER/` are git-ignored. If you
 change what ships, verify with `npm pack --dry-run` that `server/dist`,
-`frontend/dist` and `.claude/skills/telar/SKILL.md` are still included and your
-personal `TELAR-MASTER/` is not.
+`frontend/dist` and `.claude/skills/weft/SKILL.md` are still included and your
+personal `WEFT-MASTER/` is not.
 
-Thanks for helping weave Telar. 🧵
+Thanks for helping weave Weft. 🧵

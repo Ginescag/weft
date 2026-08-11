@@ -1,13 +1,13 @@
-# Telar 🧵
+# Weft 🧵
 
-**Un telar para aprender — teje conceptos en un grafo y estúdialos con IA.**
+**Weft (la trama del tejido) — teje conceptos en un grafo y estúdialos con IA.**
 
 [English](./README.md) · [Español](./README.es.md) — [HOWTO](./HOWTO.es.md) · [Contribuir](./CONTRIBUTING.md)
 
 ![license: MIT](https://img.shields.io/badge/license-MIT-7A2E3A) ![node](https://img.shields.io/badge/node-%3E%3D20-3E6B54)
 
-Telar es una **herramienta de aprendizaje local-first**: un "arnés de IA para
-aprender usando IA". Creas un proyecto de aprendizaje y Telar dibuja su **grafo de
+Weft es una **herramienta de aprendizaje local-first**: un "arnés de IA para
+aprender usando IA". Creas un proyecto de aprendizaje y Weft dibuja su **grafo de
 conceptos** y su material (lecciones, ejemplos, tests, retos, flashcards) en el
 navegador. Una IA lee tu grafo y escribe material nuevo a través de un **servidor
 MCP** — todo queda en disco como `.md` / `.json`, que es siempre la fuente de la
@@ -18,7 +18,7 @@ arriba, los conceptos son **cabezas de aguja**, y los prerrequisitos son **hilos
 de burdeos tensos**. La intensidad se gasta en un solo sitio — el grafo; todo lo
 demás permanece en calma.
 
-> Capturas próximamente — ejecútalo en local para ver el telar.
+> Capturas próximamente — ejecútalo en local para ver el tejido.
 
 ## Características
 
@@ -31,22 +31,22 @@ demás permanece en calma.
   errores registrados), Retos (con bloc de solución), Flashcards y Notas.
 - **PDFs en la app** — suelta un `.pdf` en `lessons/` o `examples/` de un concepto
   y léelo renderizado página a página (PDF.js), sin descargar.
-- **IA por MCP** — el servidor `telar mcp` permite que un asistente (Claude Code /
+- **IA por MCP** — el servidor `weft mcp` permite que un asistente (Claude Code /
   Claude Desktop) lea el grafo y escriba lecciones, tests, flashcards, roadmaps
   completos y la disposición del lienzo — con la misma validación que la web.
   Incluye **prompts** reutilizables y una **skill**.
 - **Local-first** — sin base de datos. Si el servidor muere, tu trabajo sobrevive
-  como ficheros bajo `TELAR-MASTER/`.
+  como ficheros bajo `WEFT-MASTER/`.
 
 ## Inicio rápido
 
 **Requisitos:** Node.js **20+**.
 
 ```bash
-git clone <url-de-tu-fork> telar
-cd telar
+git clone <url-de-tu-fork> weft
+cd weft
 npm install
-npm run seed     # crea un TELAR-MASTER/ inicial desde examples/starter-master
+npm run seed     # crea un WEFT-MASTER/ inicial desde examples/starter-master
 npm run dev      # Vite en :5173, API en :3131
 ```
 
@@ -60,58 +60,58 @@ Abre **http://localhost:5173**.
 
 ```bash
 npm run build    # compila frontend + server a dist/
-npm run serve    # o: node bin/telar.js — sirve la app compilada + API en :3131
+npm run serve    # o: node bin/weft.js — sirve la app compilada + API en :3131
 ```
 
 ### Úsalo como comando global
 
-Instala `telar` una vez y ejecútalo desde **cualquier** carpeta — recuerda tu
-proyecto, así que no necesitas el código abierto para estudiar. Telar aún no está
+Instala `weft` una vez y ejecútalo desde **cualquier** carpeta — recuerda tu
+proyecto, así que no necesitas el código abierto para estudiar. Weft aún no está
 en npm, así que se instala desde el código:
 
 ```bash
 npm install
 npm run build
-npm link            # pone `telar` en tu PATH (o: npm install -g .)
+npm link            # pone `weft` en tu PATH (o: npm install -g .)
 ```
 
 Luego, desde cualquier sitio:
 
 ```
-telar               abre el menú interactivo (iniciar · mover proyecto · salir)
-telar serve         arranca el servidor directamente
-telar stop          detiene un servidor en marcha (alias: telar close)
-telar path [dir]    muestra / cambia dónde vive tu TELAR-MASTER
-telar skill install instala la skill de Claude Code en ~/.claude/skills
-telar mcp           arranca el servidor MCP (para herramientas de IA)
-telar help
+weft               abre el menú interactivo (iniciar · mover proyecto · salir)
+weft serve         arranca el servidor directamente
+weft stop          detiene un servidor en marcha (alias: weft close)
+weft path [dir]    muestra / cambia dónde vive tu WEFT-MASTER
+weft skill install instala la skill de Claude Code en ~/.claude/skills
+weft mcp           arranca el servidor MCP (para herramientas de IA)
+weft help
 ```
 
-El primer `telar` sin proyecto guardado te pide una carpeta, crea ahí
-`TELAR-MASTER` y la recuerda. Guía completa del CLI (instalar, primer arranque,
-actualizar, desinstalar) en **[HOWTO.es.md §5](./HOWTO.es.md#5-usa-telar-como-cli-instálalo-una-vez-úsalo-desde-cualquier-sitio)**.
+El primer `weft` sin proyecto guardado te pide una carpeta, crea ahí
+`WEFT-MASTER` y la recuerda. Guía completa del CLI (instalar, primer arranque,
+actualizar, desinstalar) en **[HOWTO.es.md §5](./HOWTO.es.md#5-usa-weft-como-cli-instálalo-una-vez-úsalo-desde-cualquier-sitio)**.
 
 ## Manéjalo con IA (MCP)
 
-Apunta un cliente MCP a `telar mcp`. En **Claude Code**:
+Apunta un cliente MCP a `weft mcp`. En **Claude Code**:
 
 ```bash
-claude mcp add telar -- node /ruta/absoluta/a/telar/bin/telar.js mcp
+claude mcp add weft -- node /ruta/absoluta/a/weft/bin/weft.js mcp
 ```
 
-En **Claude Desktop**, añade una entrada `telar` a `mcpServers` en
+En **Claude Desktop**, añade una entrada `weft` a `mcpServers` en
 `claude_desktop_config.json`.
 
-El asistente puede entonces leer tu grafo (`telar://graph`, `telar://errors`, …) y
+El asistente puede entonces leer tu grafo (`weft://graph`, `weft://errors`, …) y
 escribir en él con tools (`build_subgraph`, `create_lesson`, `add_questions`, …).
 Además incluye:
 
 - **Prompts** — flujos de un clic: `build_roadmap`, `fill_concept`,
   `teach_concept`, `quiz_me`, `expand_concept`, `review_mistakes`. En Claude Code
-  son slash-commands (`/mcp__telar__build_roadmap`); en Claude Desktop están bajo
+  son slash-commands (`/mcp__weft__build_roadmap`); en Claude Desktop están bajo
   el menú **+**.
 - **Una skill de Claude Code** — enseña todo el flujo y se autocarga en el repo;
-  `telar skill install` la deja disponible en cualquier sesión.
+  `weft skill install` la deja disponible en cualquier sesión.
 
 Guía completa (recursos, tools, prompts, la skill) en
 **[HOWTO.es.md §4](./HOWTO.es.md#4-manéjalo-con-ia-mcp)**.
@@ -119,19 +119,19 @@ Guía completa (recursos, tools, prompts, la skill) en
 ## Estructura del proyecto
 
 ```
-telar/
+weft/
 ├── frontend/            Vite + React + TS (pantallas de grafo y concepto)
 ├── server/              backend Hono + servidor MCP (capa de ficheros en master.ts)
-├── bin/telar.js         punto de entrada del CLI
+├── bin/weft.js          punto de entrada del CLI
 ├── examples/            starter-master/ — el seed para `npm run seed`
-├── .claude/skills/      la skill de Telar (viaja con el paquete)
-├── IA-DOCS/             docs internas de diseño en español (TELAR_PLAN, BACKEND_PLAN, MCP)
+├── .claude/skills/      la skill de Weft (viaja con el paquete)
+├── IA-DOCS/             docs internas de diseño en español (WEFT_PLAN, BACKEND_PLAN, MCP)
 ├── HOWTO.md             guía de uso (EN)  ·  HOWTO.es.md (ES)
 └── CLAUDE.md            guía para Claude Code trabajando en este repo
 ```
 
-`TELAR-MASTER/` (tu proyecto real de aprendizaje) está **fuera de git** — créalo
-con `npm run seed`, o apunta Telar al tuyo con `telar path <dir>`.
+`WEFT-MASTER/` (tu proyecto real de aprendizaje) está **fuera de git** — créalo
+con `npm run seed`, o apunta Weft al tuyo con `weft path <dir>`.
 
 ## Documentación
 
