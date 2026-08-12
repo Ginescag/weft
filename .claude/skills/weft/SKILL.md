@@ -89,7 +89,8 @@ cleaner edges beat a dense web.
 - **Colours are hex** (`#7A2E3A`); the four preset names (`sand`/`moss`/`sky`/`rose`)
   are still accepted and mapped to hex.
 - **Canvas coordinates** are graph-space; stickies clamp 100–6000 px, frames 200–40000 px,
-  arrow width 3–240. Frame position (`x`,`y`) is its **centre**.
+  arrow width 3–240. Sticky and frame position (`x`,`y`) is the item's **centre** (like a
+  needle's), never its top-left corner.
 - Keep everything in the project's language and match the on-disk Spanish keys when a
   tool exposes them (`nombre`, `resumen`, `relaciones`, `titulo`, `posiciones`).
 

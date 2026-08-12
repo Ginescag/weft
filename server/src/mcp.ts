@@ -644,7 +644,7 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
         {
             title: 'Create sticky note',
             description:
-                'Add a region sticky note to the graph canvas — a big titled label that sits under the needles. Ideal for framing a subgraph. Position/size are canvas coordinates (100–6000 px).',
+                'Add a region sticky note to the graph canvas — a big titled label that sits under the needles. Ideal for framing a subgraph. Position (x,y = centre) and size are canvas coordinates (100–6000 px).',
             inputSchema: {
                 titulo: z.string().default('').describe('the big title shown on the sticky'),
                 texto: z.string().default('').describe('optional body text under the title'),
@@ -652,8 +652,8 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                     .string()
                     .default('#eae0bf')
                     .describe('hex colour like "#7A2E3A", or a preset name (sand/moss/sky/rose)'),
-                x: z.number().default(0).describe('canvas x of the top-left corner'),
-                y: z.number().default(0).describe('canvas y of the top-left corner'),
+                x: z.number().default(0).describe('canvas x of the sticky centre'),
+                y: z.number().default(0).describe('canvas y of the sticky centre'),
                 ancho: z.number().default(260).describe('width in px (100–6000)'),
                 alto: z.number().default(170).describe('height in px (100–6000)'),
                 fijado: z
@@ -676,8 +676,8 @@ If a pattern of errors suggests a concept is weak, offer to run quiz_me or fill_
                 titulo: z.string().optional(),
                 texto: z.string().optional(),
                 color: z.string().optional().describe('hex colour or a preset name (sand/moss/sky/rose)'),
-                x: z.number().optional(),
-                y: z.number().optional(),
+                x: z.number().optional().describe('canvas x of the sticky centre'),
+                y: z.number().optional().describe('canvas y of the sticky centre'),
                 ancho: z.number().optional(),
                 alto: z.number().optional(),
                 fijado: z.boolean().optional().describe('pin (true) or free (false) it on the canvas'),
